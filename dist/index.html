@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="根据吸油烟机噪声频谱和安装约束筛选消声结构，查看 COMSOL 无流仿真。">
+  <meta name="theme-color" content="#142d32">
+  <title>吸油烟机降噪方案选型</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.mjs"></script>
+</head>
+<body>
+  <header class="topbar"><div class="wrap top-inner">
+    <div class="brand"><span aria-hidden="true" class="mark">≈</span><span>声学研发工作台</span></div>
+    <a href="#verification">查看仿真验证</a>
+  </div></header>
+  <main class="wrap">
+    <section class="intro" aria-labelledby="page-title">
+      <div><p class="eyebrow">吸油烟机 · 无流声学</p><h1 id="page-title">降噪方案选型与仿真</h1><p>用噪声频谱和安装约束筛选消声结构，再用 COMSOL 评估目标频段内的传声损失。</p></div>
+      <button id="load-demo" class="secondary" type="button">加载演示样例</button>
+    </section>
+
+    <div class="workbench">
+      <section class="panel spectrum" aria-labelledby="spectrum-heading">
+        <div class="panel-head"><div><h2 id="spectrum-heading">噪声频谱</h2><p id="spectrum-source">合成演示频谱 · 声级仅用于识别频带</p></div><label class="upload">导入 CSV<input id="upload" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain"></label></div>
+        <div id="upload-error" class="error" role="alert" hidden></div>
+        <p class="format-note">文件前两列为频率（Hz）和声级（dB）。也可以在右侧直接填目标频段。</p>
+        <div class="plot"><canvas id="spectrum-chart" role="img" aria-label="噪声频谱与目标频段"></canvas></div>
+        <div class="axis-note"><span class="legend swatch">声级</span><span class="legend band">目标频段</span></div>
+        <div class="peak-row" id="peaks" aria-label="建议目标频段"></div>
+      </section>
+
+      <section class="panel inputs" aria-labelledby="parameters-heading">
+        <div class="panel-head"><div><h2 id="parameters-heading">选型条件</h2><p>先核对风道和装配占用，再筛选侧挂结构。</p></div></div>
+        <form id="parameters" novalidate>
+          <fieldset><legend>目标频段 <span>Hz</span></legend><div class="fields two">
+            <label>起始频率<input name="low" type="number" min="50" step="any" inputmode="decimal" required></label>
+            <label>终止频率<input name="high" type="number" min="50" step="any" inputmode="decimal" required></label>
+          </div></fieldset>
+          <fieldset><legend>整件包络 <span>mm</span></legend><div class="fields three">
+            <label>轴向长度<input name="length" type="number" min="1" step="any" inputmode="decimal" required></label>
+            <label>宽度<input name="width" type="number" min="1" step="any" inputmode="decimal" required></label>
+            <label>高度<input name="height" type="number" min="1" step="any" inputmode="decimal" required></label>
+          </div></fieldset>
+          <fieldset><legend>安装与加工 <span>mm</span></legend><div class="fields three">
+            <label>保留风道高度<input name="duct" type="number" min="1" step="any" inputmode="decimal" required></label>
+            <label>接口及装配占用<input name="allowance" type="number" min="0" step="any" inputmode="decimal" required></label>
+            <label>最小可制造开口<input name="min" type="number" min="0.1" step="any" inputmode="decimal" required></label>
+          </div></fieldset>
+          <div class="error" id="input-error" role="alert" hidden></div>
+          <button class="primary" type="submit">筛选降噪方案</button>
+        </form>
+      </section>
+    </div>
+
+    <section class="recommendations" aria-labelledby="recommendations-heading">
+      <div class="section-head"><h2 id="recommendations-heading">候选结构</h2><p id="dimension-summary" aria-live="polite"></p></div>
+      <div id="candidates" class="candidate-grid"></div>
+      <p id="screening-note" class="note"></p>
+      <div class="sim-actions"><button type="button" class="secondary" id="download-selection" hidden>下载所选方案参数</button><span id="selected-structure" role="status"></span></div>
+    </section>
+
+    <section id="verification" class="panel verification" aria-labelledby="verification-heading">
+      <div class="panel-head"><div><h2 id="verification-heading">COMSOL 无流验证</h2><p id="sim-status" role="status"></p></div><div class="sim-actions" id="sim-actions" hidden></div></div>
+      <div class="verification-grid" id="sim-plot" hidden>
+        <div><div class="plot simulation-plot"><canvas id="simulation-chart" role="img" aria-label="COMSOL 无流传声损失曲线"></canvas></div><div class="axis-note"><span class="legend swatch">侧支亥姆霍兹</span><span class="legend baseline">空直管基准</span><span class="legend band">样例目标频段</span></div></div>
+        <dl id="simulation-facts" class="fact-list"></dl>
+      </div>
+      <p id="sim-note" class="note"></p>
+    </section>
+  </main>
+  <footer class="wrap footer">方案初筛 · 二维无平均流仿真</footer>
+</body>
+</html>

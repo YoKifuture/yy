@@ -1,0 +1,6 @@
+*.class
+*.status
+*.log
+.env*
+models/
+.openai/
