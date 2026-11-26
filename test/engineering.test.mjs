@@ -18,6 +18,12 @@ test('updates an existing thin case and detects incompatible limits', () => {
   assert.equal(limit.items[0].id, 'porous');
 });
 
+test('handles the submitted installation dimensions and a material model change', () => {
+  const answer = runThinTurn({message: '安装尺寸250*320*15mm，安装预留2 mm，流阻率 20000，改用 Delany–Bazley', inputs: THIN_SAMPLE});
+  assert.deepEqual(answer.inputs, {...THIN_SAMPLE, material: 'db'});
+  assert.equal(answer.selected, 'porous');
+});
+
 test('disputed values and inferred values require confirmation', () => {
   const conflict = runThinTurn({message: '厚度 12 mm，厚度 14 mm', inputs: THIN_SAMPLE});
   assert.equal(conflict.inputs.height, 15);

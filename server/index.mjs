@@ -12,6 +12,7 @@ const provider = createCodex(process.env.HOOD_CODEX_COMMAND);
 const solver = createSolver(process.env.HOOD_COMSOL_BIN);
 const host = process.env.HOOD_HOST || '127.0.0.1';
 const port = Number(process.env.HOOD_PORT || 8768);
+const publicHost = process.env.HOOD_PUBLIC_HOST?.toLowerCase();
 const types = {'.html': 'text/html', '.mjs': 'text/javascript', '.css': 'text/css', '.csv': 'text/csv', '.json': 'application/json'};
 
 function json(response, status, data) {
@@ -36,8 +37,21 @@ createServer(async (request, response) => {
   response.setHeader('Referrer-Policy', 'no-referrer');
   response.setHeader('Content-Security-Policy', "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'");
   try {
+    const authority = request.headers.host?.toLowerCase();
+    if (!authority || ![publicHost, `127.0.0.1:${port}`, `localhost:${port}`].includes(authority)) {
+      return json(response, 403, {error: '此服务地址未配置。'});
+    }
     const path = new URL(request.url, 'http://localhost').pathname;
     const method = request.method;
+    if (method === 'POST' && path.startsWith('/api/')) {
+      const origin = request.headers.origin;
+      if (origin && ![`http://${authority}`, `https://${authority}`].includes(origin)) {
+        return json(response, 403, {error: '请从应用网页发起请求。'});
+      }
+      if (request.headers['content-type']?.split(';')[0].trim() !== 'application/json') {
+        return json(response, 415, {error: '请求需要 application/json 格式。'});
+      }
+    }
     if (method === 'GET' && path === '/api/status') {
       return json(response, 200, {codex: !!provider, solver: solver.enabled});
     }
