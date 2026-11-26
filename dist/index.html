@@ -12,14 +12,62 @@
 <body>
   <header class="topbar"><div class="wrap top-inner">
     <div class="brand"><span aria-hidden="true" class="mark">≈</span><span>声学研发工作台</span></div>
-    <a href="#verification">查看仿真验证</a>
+    <a href="#agent">打开选型助手</a>
   </div></header>
   <main class="wrap">
     <section class="intro" aria-labelledby="page-title">
-      <div><p class="eyebrow">吸油烟机 · 无流声学</p><h1 id="page-title">降噪方案选型与仿真</h1><p>用噪声频谱和安装约束筛选消声结构，再用 COMSOL 评估目标频段内的传声损失。</p></div>
-      <button id="load-demo" class="secondary" type="button">加载演示样例</button>
+      <div><p class="eyebrow">吸油烟机 · 无流声学</p><h1 id="page-title">烟机降噪选型与仿真 Agent</h1><p>从频谱或目标频段出发，结合安装约束筛选方案，再用 COMSOL 校核。</p></div>
+      <div class="lane-actions" aria-label="选择工况">
+        <button id="show-thin" class="secondary" type="button" aria-pressed="true">薄型吸声模块</button>
+        <button id="show-duct" class="secondary" type="button" aria-pressed="false">侧支风道</button>
+      </div>
+    </section>
+    <section id="agent" class="panel agent" aria-labelledby="agent-heading">
+      <div class="panel-head"><div><h2 id="agent-heading">选型助手</h2><p id="provider-status" role="status">正在检查服务</p></div><button id="reset-agent" class="secondary" type="button">清空对话</button></div>
+      <div id="chat-log" class="chat-log" role="log" aria-label="选型对话"></div>
+      <form id="chat-form" class="chat-form">
+        <label for="chat-input" class="sr-only">输入选型请求</label><input id="chat-input" placeholder="例如：频段改为 700–1100 Hz，厚度改为 12 mm" required maxlength="1800">
+        <button id="send-chat" class="primary" type="submit">发送</button>
+      </form>
+      <div class="sim-actions chat-presets"><button id="chat-compare" type="button" class="peak">比较候选及依据</button><button id="chat-sweep" type="button" class="peak">提交仿真</button><button id="apply-suggestions" class="secondary" type="button" hidden></button></div>
     </section>
 
+    <section id="thin-track">
+      <div class="workbench">
+        <section class="panel" aria-labelledby="thin-heading">
+          <div class="panel-head"><div><h2 id="thin-heading">薄型模块条件</h2><p>600–1200 Hz 和 250 × 320 × 15 mm 为给定工况。孔径、预留和流阻率是演示假设。</p></div><button id="load-thin" class="secondary" type="button">还原参赛工况</button></div>
+          <div class="axis-note"><label class="upload">导入噪声频谱<input id="thin-upload" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain"></label><span id="thin-upload-status" role="status">两列为频率（Hz）与声级（dB）</span></div>
+          <form id="thin-form" novalidate>
+            <fieldset><legend>目标频段 <span>Hz</span></legend><div class="fields two">
+              <label>起始频率<input name="low" type="number" step="any"></label><label>终止频率<input name="high" type="number" step="any"></label>
+            </div></fieldset>
+            <fieldset><legend>模块包络 <span>mm</span></legend><div class="fields three">
+              <label>长<input name="length" type="number" step="any"></label><label>宽<input name="width" type="number" step="any"></label><label>总厚<input name="height" type="number" step="any"></label>
+            </div></fieldset>
+            <fieldset><legend>制造与材料</legend><div class="fields two">
+              <label>最小孔径（mm）<input name="min" type="number" step="any"></label><label>安装预留（mm）<input name="reserve" type="number" step="any"></label>
+              <label>流阻率（Pa·s/m²）<input name="resistivity" type="number" step="any"></label><label>多孔介质模型<select name="material"><option value="miki">Miki</option><option value="db">Delany–Bazley</option></select></label>
+            </div></fieldset>
+          </form>
+          <p id="thin-error" class="error" role="alert" hidden></p>
+        </section>
+        <section class="panel" aria-labelledby="abs-heading">
+          <div class="panel-head"><div><h2 id="abs-heading">正入射吸声系数</h2><p id="abs-source">正在读取数据</p></div></div>
+          <div class="plot absorption-plot"><canvas id="abs-chart" role="img" aria-label="薄型模块的正入射吸声系数曲线"></canvas></div>
+          <div class="axis-note"><span class="legend swatch">微穿孔板</span><span class="legend baseline">多孔纤维层</span></div>
+          <p id="thin-guidance" class="note"></p>
+        </section>
+      </div>
+      <section class="recommendations" aria-labelledby="thin-candidates-heading">
+        <div class="section-head"><h2 id="thin-candidates-heading">薄型候选结构</h2><p id="thin-summary"></p></div>
+        <div class="candidate-grid" id="thin-candidates"></div>
+        <details class="note"><summary>其他结构的筛选依据</summary><p id="other-structures"></p></details>
+        <div class="sim-actions" id="thin-solver"><button id="submit-thin" class="secondary" type="button">运行当前方案 COMSOL</button><button id="download-thin" class="secondary" type="button">下载选型报告</button><span id="thin-job-status" role="status"></span></div>
+        <div class="sim-actions"><a class="download" href="data/thin-absorption.csv" download>下载参赛样例曲线 CSV</a><div class="sim-actions" id="thin-artifacts"></div></div>
+      </section>
+    </section>
+    <div id="duct-track" hidden>
+      <div class="lane-actions"><button id="load-demo" class="secondary" type="button">还原侧支风道样例</button></div>
     <div class="workbench">
       <section class="panel spectrum" aria-labelledby="spectrum-heading">
         <div class="panel-head"><div><h2 id="spectrum-heading">噪声频谱</h2><p id="spectrum-source">合成演示频谱 · 声级仅用于识别频带</p></div><label class="upload">导入 CSV<input id="upload" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain"></label></div>
@@ -67,8 +115,11 @@
         <dl id="simulation-facts" class="fact-list"></dl>
       </div>
       <p id="sim-note" class="note"></p>
+      <div class="sim-actions"><button id="submit-duct" class="secondary" type="button">运行当前方案 COMSOL</button><span id="duct-job-status" role="status"></span></div>
+      <div class="sim-actions" id="duct-artifacts"></div>
     </section>
+    </div>
   </main>
-  <footer class="wrap footer">方案初筛 · 二维无平均流仿真</footer>
+  <footer class="wrap footer">方案初筛 · 无平均流部件级计算</footer>
 </body>
 </html>

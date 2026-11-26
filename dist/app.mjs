@@ -1,5 +1,6 @@
 import {SAMPLE, detectPeaks, evaluate, parseSpectrum, sampleSpectrum} from './engineering.mjs';
 import {simulation} from './simulation.mjs';
+import {connectWorkbench} from './workbench.mjs';
 
 const byId = id => document.getElementById(id);
 const form = byId('parameters');
@@ -19,14 +20,15 @@ function add(parent, tag, value, className) {
   return node;
 }
 
-function draw(canvas, series, band, yUnit) {
+function draw(canvas, series, band, yUnit, scaleUnit = false) {
   const {width, height} = canvas.getBoundingClientRect();
-  if (!width || !height || !series.length) return;
+  if (!width || !height) return;
   const scale = Math.min(devicePixelRatio || 1, 2);
   canvas.width = Math.round(width * scale);
   canvas.height = Math.round(height * scale);
   const ctx = canvas.getContext('2d');
   ctx.scale(scale, scale);
+  if (!series.length) return;
   const left = 50;
   const right = width - 18;
   const top = 25;
@@ -48,6 +50,7 @@ function draw(canvas, series, band, yUnit) {
   const ySpan = Math.max(yMax - yMin, 1);
   yMin = Math.floor(yMin - ySpan * .08);
   yMax = Math.ceil(yMax + ySpan * .09);
+  if (scaleUnit) { yMin = 0; yMax = 1; }
   const xAt = f => left + (f - xMin) * (right - left) / (xMax - xMin);
   const yAt = db => bottom - (db - yMin) * (bottom - top) / (yMax - yMin);
   if (band && band.high > xMin && band.low < xMax) {
@@ -69,7 +72,7 @@ function draw(canvas, series, band, yUnit) {
     ctx.stroke();
     ctx.fillStyle = colors.text;
     ctx.textAlign = 'right';
-    ctx.fillText(String(Math.round(value)), left - 9, y);
+    ctx.fillText(scaleUnit ? value.toFixed(2) : String(Math.round(value)), left - 9, y);
   }
   const ticks = width < 490 ? 3 : 5;
   for (let i = 0; i <= ticks; i++) {
@@ -284,3 +287,9 @@ loadSample();
 const observer = new ResizeObserver(drawCharts);
 observer.observe(byId('spectrum-chart'));
 observer.observe(byId('simulation-chart'));
+connectWorkbench({
+  draw, add, addFacts, colors, getInputs,
+  peak: () => detectPeaks(points)[0],
+  ductSelected: () => selectedPlan,
+  updateDuct: selected => { if (selected) selectedId = selected; updateRecommendations(); },
+});
