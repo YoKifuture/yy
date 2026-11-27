@@ -8,8 +8,8 @@ const display = value => Number(value.toFixed(2));
 const normalize = value => Number.isFinite(value) || (typeof value === 'string' && value) ? value : null;
 const same = (current, expected) => Object.keys(current).every(key => normalize(current[key]) === normalize(expected[key]));
 const trackMeta = {
-  thin: ['ACOUSTIC ABSORPTION', '吸声模块分析', '比较薄型微穿孔板与多孔材料的吸声性能。', '吸声模块'],
-  duct: ['DUCT ATTENUATION', '风道消声分析', '核对安装空间，筛选侧支方案并计算频域传声损失。', '风道消声'],
+  thin: ['吸声模块分析', '比较薄型微穿孔板与多孔材料的吸声性能。', '吸声模块'],
+  duct: ['风道消声分析', '核对安装空间，筛选侧支方案并计算频域传声损失。', '风道消声'],
 };
 
 function saveJson(name, data) {
@@ -61,7 +61,13 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
   const inputsFor = mode => mode === 'thin' ? thinInputs() : getInputs();
 
   function syncCase() {
-    byId('export-case').disabled = !Object.values(inputsFor(track)).some(value => normalize(value) !== null);
+    const inputs = inputsFor(track);
+    const {low, high, length, width, height} = inputs;
+    byId('export-case').disabled = !Object.values(inputs).some(value => normalize(value) !== null);
+    const format = value => value.toLocaleString('zh-CN', {maximumFractionDigits: 2, useGrouping: false});
+    byId('case-band').textContent = low > 0 && high > low ? format(low) + '–' + format(high) + ' Hz' : '待输入';
+    byId('case-envelope').textContent = [length, width, height].every(value => value > 0)
+      ? [length, width, height].map(format).join(' × ') + ' mm' : '待输入';
   }
 
   function showCaseStatus(value) {
@@ -115,7 +121,7 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
         area.querySelector('[aria-pressed="true"]')?.focus();
       });
       const calculated = job?.candidate === id ? job.result.series : null;
-      return {points: calculated || item.series, color: id === 'mpp' ? colors.accent : colors.comparison};
+      return {points: calculated || item.series, color: id === 'mpp' ? colors.accent : colors.comparison, label: names[id]};
     });
     if (result.panelIssue) add(area, 'p', result.panelIssue, 'note');
     if (result.materialIssue) add(area, 'p', result.materialIssue, 'note');
@@ -145,8 +151,8 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
     byId('sim-empty').hidden = !!active;
     byId('sim-legend').hidden = !active;
     const points = active ? [
-      {points: active.result.reference, color: colors.comparison},
-      {points: active.result.resonator, color: colors.accent},
+      {points: active.result.reference, color: colors.comparison, label: '空直管'},
+      {points: active.result.resonator, color: colors.accent, label: '侧支亥姆霍兹'},
     ] : [];
     draw(byId('simulation-chart'), points, active?.inputs, '传声损失 / dB');
     syncCase();
@@ -159,8 +165,7 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
       byId(key + '-track').hidden = key !== mode;
     }
     apply.hidden = true;
-    const [kicker, title, description, context] = trackMeta[mode];
-    byId('workspace-kicker').textContent = kicker;
+    const [title, description, context] = trackMeta[mode];
     byId('workspace-title').textContent = title;
     byId('workspace-description').textContent = description;
     byId('agent-context').textContent = context;

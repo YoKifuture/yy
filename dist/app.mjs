@@ -1,9 +1,9 @@
 import {detectPeaks, evaluate, parseSpectrum} from './engineering.mjs';
 import {connectWorkbench} from './workbench.mjs';
+import {draw, drawWorkspaceWave, colors} from './visuals.mjs';
 
 const byId = id => document.getElementById(id);
 const form = byId('parameters');
-const colors = {accent: '#62e5f2', comparison: '#8aa8ff', band: '#307c9d40', grid: '#8ab6ff27', text: '#a7bbd3'};
 let points = [];
 let uploadRequest = 0;
 let selectedId = null;
@@ -17,82 +17,6 @@ function add(parent, tag, value, className) {
   return node;
 }
 
-function draw(canvas, series, band, yUnit, scaleUnit = false) {
-  const {width, height} = canvas.getBoundingClientRect();
-  if (!width || !height) return;
-  const scale = Math.min(devicePixelRatio || 1, 2);
-  canvas.width = Math.round(width * scale);
-  canvas.height = Math.round(height * scale);
-  const ctx = canvas.getContext('2d');
-  ctx.scale(scale, scale);
-  if (!series.length) return;
-  const left = 50;
-  const right = width - 18;
-  const top = 25;
-  const bottom = height - 37;
-  if (right <= left || bottom <= top) return;
-  let xMin = Infinity;
-  let xMax = -Infinity;
-  let yMin = Infinity;
-  let yMax = -Infinity;
-  for (const line of series) {
-    for (const [x, y] of line.points) {
-      xMin = Math.min(xMin, x);
-      xMax = Math.max(xMax, x);
-      yMin = Math.min(yMin, y);
-      yMax = Math.max(yMax, y);
-    }
-  }
-  if (!(xMax > xMin)) return;
-  const ySpan = Math.max(yMax - yMin, 1);
-  yMin = Math.floor(yMin - ySpan * .08);
-  yMax = Math.ceil(yMax + ySpan * .09);
-  if (scaleUnit) { yMin = 0; yMax = 1; }
-  const xAt = f => left + (f - xMin) * (right - left) / (xMax - xMin);
-  const yAt = db => bottom - (db - yMin) * (bottom - top) / (yMax - yMin);
-  if (band && band.high > xMin && band.low < xMax) {
-    const from = xAt(Math.max(xMin, band.low));
-    const until = xAt(Math.min(xMax, band.high));
-    ctx.fillStyle = colors.band;
-    ctx.fillRect(from, top, until - from, bottom - top);
-  }
-  ctx.font = '12px system-ui, sans-serif';
-  ctx.textBaseline = 'middle';
-  ctx.lineWidth = 1;
-  for (let i = 0; i <= 4; i++) {
-    const value = yMin + i * (yMax - yMin) / 4;
-    const y = yAt(value);
-    ctx.strokeStyle = colors.grid;
-    ctx.beginPath();
-    ctx.moveTo(left, y);
-    ctx.lineTo(right, y);
-    ctx.stroke();
-    ctx.fillStyle = colors.text;
-    ctx.textAlign = 'right';
-    ctx.fillText(scaleUnit ? value.toFixed(2) : String(Math.round(value)), left - 9, y);
-  }
-  const ticks = width < 490 ? 3 : 5;
-  for (let i = 0; i <= ticks; i++) {
-    const value = xMin + i * (xMax - xMin) / ticks;
-    ctx.textAlign = 'center';
-    ctx.fillText(String(Math.round(value)), xAt(value), bottom + 11);
-  }
-  ctx.textAlign = 'left';
-  ctx.fillText(yUnit, left, 12);
-  ctx.textAlign = 'right';
-  ctx.fillText('频率 / Hz', right, height - 10);
-  for (const line of series) {
-    ctx.beginPath();
-    ctx.strokeStyle = line.color;
-    ctx.lineWidth = 2;
-    line.points.forEach(([f, db], i) => {
-      if (i === 0) ctx.moveTo(xAt(f), yAt(db));
-      else ctx.lineTo(xAt(f), yAt(db));
-    });
-    ctx.stroke();
-  }
-}
-
 function getInputs() {
   return Object.fromEntries([...form.elements].filter(field => field.name).map(field => [field.name, field.valueAsNumber]));
 }
@@ -100,7 +24,7 @@ function getInputs() {
 function drawCharts() {
   const {low, high} = getInputs();
   const band = Number.isFinite(low) && high > low ? {low, high} : null;
-  draw(byId('spectrum-chart'), points.length ? [{points, color: colors.accent}] : [], band, '声级 / dB');
+  draw(byId('spectrum-chart'), points.length ? [{points, color: colors.accent, label: '声级'}] : [], band, '声级 / dB');
 }
 
 function renderPeaks() {
@@ -236,6 +160,9 @@ byId('download-selection').addEventListener('click', () => {
 updateRecommendations();
 const observer = new ResizeObserver(drawCharts);
 observer.observe(byId('spectrum-chart'));
+const workspaceWave = byId('workspace-wave');
+const waveObserver = new ResizeObserver(() => drawWorkspaceWave(workspaceWave));
+waveObserver.observe(workspaceWave);
 connectWorkbench({
   draw, add, addFacts, colors, getInputs,
   peak: () => detectPeaks(points).find(item => item.low >= 50 && item.high <= 5000),
