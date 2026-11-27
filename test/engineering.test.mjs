@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {parseRequest, runThinTurn, runTurn} from '../dist/agent.mjs';
-import {evaluateThin, THIN_SAMPLE} from '../dist/absorbers.mjs';
-import {evaluate, SAMPLE} from '../dist/engineering.mjs';
-import {thinEvidence} from '../dist/thin-evidence.mjs';
+import {evaluateThin} from '../dist/absorbers.mjs';
+import {evaluate} from '../dist/engineering.mjs';
+import {SAMPLE, THIN_SAMPLE} from './fixtures/inputs.mjs';
+import {thinEvidence} from './fixtures/thin-evidence.mjs';
 
 test('parses range, mixed units and complete enclosure in the declared order', () => {
   const result = parseRequest('频段 0.6–1.2 kHz，包络 25×32×1.5 cm，最小孔径 0.5 mm');
@@ -16,6 +17,13 @@ test('updates an existing thin case and detects incompatible limits', () => {
   const limit = evaluateThin({...answer.inputs, min: 2});
   assert.equal(limit.panel, null);
   assert.equal(limit.items[0].id, 'porous');
+});
+
+test('runs the selected branch without requiring unrelated measurements', () => {
+  const withoutMaterial = evaluateThin({...THIN_SAMPLE, material: null, resistivity: undefined});
+  assert.deepEqual(withoutMaterial.items.map(item => item.id), ['mpp']);
+  const withoutHoleSize = evaluateThin({...THIN_SAMPLE, min: undefined});
+  assert.deepEqual(withoutHoleSize.items.map(item => item.id), ['porous']);
 });
 
 test('handles the submitted installation dimensions and a material model change', () => {

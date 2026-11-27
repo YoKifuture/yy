@@ -1,14 +1,5 @@
-export const SAMPLE = Object.freeze({low: 380, high: 460, length: 360, width: 94, height: 160, duct: 65, allowance: 80, min: 1});
 const SOUND_SPEED = 343;
 const format = (value, digits = 1) => Number(value.toFixed(digits));
-
-export function sampleSpectrum() {
-  return Array.from({length: 241}, (_, index) => {
-    const frequency = 100 + index * 5;
-    const peak = (center, spread, height) => height * Math.exp(-((frequency - center) ** 2) / (2 * spread ** 2));
-    return [frequency, format(52 + 1.3 * Math.sin(frequency / 46) + peak(420, 22, 24) + peak(805, 37, 13))];
-  });
-}
 
 export function parseSpectrum(input) {
   const points = new Map();

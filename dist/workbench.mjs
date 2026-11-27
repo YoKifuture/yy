@@ -1,12 +1,24 @@
-import {fields, runThinTurn, runTurn} from './agent.mjs';
-import {evaluateThin, THIN_SAMPLE} from './absorbers.mjs';
-import {thinEvidence} from './thin-evidence.mjs';
+import {cleanInputs, cleanThin, fields, runThinTurn, runTurn} from './agent.mjs';
+import {evaluateThin, THIN_FIELDS} from './absorbers.mjs';
 import {detectPeaks, parseSpectrum} from './engineering.mjs';
 
 const byId = id => document.getElementById(id);
 const names = {mpp: '浅背腔微穿孔板', porous: '刚性背衬多孔纤维层'};
 const display = value => Number(value.toFixed(2));
-const same = (current, expected) => Object.keys(current).every(key => Object.is(current[key], expected[key]));
+const normalize = value => Number.isFinite(value) || (typeof value === 'string' && value) ? value : null;
+const same = (current, expected) => Object.keys(current).every(key => normalize(current[key]) === normalize(expected[key]));
+const trackMeta = {
+  thin: ['ACOUSTIC ABSORPTION', '吸声模块分析', '比较薄型微穿孔板与多孔材料的吸声性能。', '吸声模块'],
+  duct: ['DUCT ATTENUATION', '风道消声分析', '核对安装空间，筛选侧支方案并计算频域传声损失。', '风道消声'],
+};
+
+function saveJson(name, data) {
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'}));
+  link.download = name;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
 
 function populate(form, values) {
   for (const [key, value] of Object.entries(values)) {
@@ -19,13 +31,13 @@ async function api(route, data, timeout = 5000) {
   const options = {signal: AbortSignal.timeout(timeout)};
   if (data) Object.assign(options, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)});
   const response = await fetch('api/' + route, options);
-  if (!response.headers.get('content-type')?.includes('json')) throw new Error('此链接仅提供网页演示。');
+  if (!response.headers.get('content-type')?.includes('json')) throw new Error('工作区服务未连接。');
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || '服务不可用。');
   return result;
 }
 
-export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, ductSelected, updateDuct}) {
+export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, clearDuct, ductSelected, updateDuct}) {
   const thinForm = byId('thin-form');
   const ductForm = byId('parameters');
   const chatInput = byId('chat-input');
@@ -40,22 +52,34 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
   let turn = 0;
   let thinPeak;
   let upload = 0;
+  let caseImport = 0;
 
-  const thinInputs = () => Object.fromEntries(Object.keys(THIN_SAMPLE).map(key => {
+  const thinInputs = () => Object.fromEntries(THIN_FIELDS.map(key => {
     const field = thinForm.elements.namedItem(key);
     return [key, key === 'material' ? field.value : field.valueAsNumber];
   }));
   const inputsFor = mode => mode === 'thin' ? thinInputs() : getInputs();
 
+  function syncCase() {
+    byId('export-case').disabled = !Object.values(inputsFor(track)).some(value => normalize(value) !== null);
+  }
+
+  function showCaseStatus(value) {
+    const status = byId('case-status');
+    status.textContent = value;
+    status.hidden = !value;
+  }
+
   function links(mode, job) {
     const area = byId(mode + '-artifacts');
     area.replaceChildren();
     if (!job) return;
-    const filename = mode === 'thin' ? 'absorber' : 'side-branch';
-    for (const [ext, label] of [['mph', '下载 COMSOL 模型'], ['csv', '下载本次曲线']]) {
+    const files = mode === 'thin' ? [['absorber.mph', '下载模型'], ['absorber.csv', '下载曲线']]
+      : [['side-branch.mph', '下载侧支模型'], ['side-branch.csv', '下载侧支曲线'], ['reference.mph', '下载直管模型'], ['reference.csv', '下载直管曲线']];
+    for (const [filename, label] of files) {
       const link = add(area, 'a', label, 'download');
-      link.href = 'api/jobs/' + job.id + '/' + filename + '.' + ext;
-      link.download = filename + '.' + ext;
+      link.href = 'api/jobs/' + job.id + '/' + filename;
+      link.download = filename;
     }
   }
 
@@ -65,12 +89,12 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
     const area = byId('thin-candidates');
     const error = byId('thin-error');
     area.replaceChildren();
-    error.hidden = !result.error;
+    error.hidden = !result.error || !Object.values(inputs).some(value => normalize(value) !== null);
     error.textContent = result.error || '';
     byId('thin-summary').textContent = result.error ? '' : '净厚 ' + display(result.usable) + ' mm';
-    const sample = same(inputs, {...THIN_SAMPLE, material: inputs.material}) ? thinEvidence : null;
     const job = live.thin && same(inputs, live.thin.inputs) ? live.thin : null;
     const items = result.items ?? [];
+    if (result.error) add(area, 'p', '补齐工况后显示候选结构。', 'note');
     if (!items.some(item => item.id === thinChoice)) thinChoice = items[0]?.id ?? null;
     const series = items.map((item, index) => {
       const {id, geometry: g} = item;
@@ -90,29 +114,42 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
         renderThin();
         area.querySelector('[aria-pressed="true"]')?.focus();
       });
-      const baseline = id === 'porous' && inputs.material === 'db' ? 'db' : id;
-      const calculated = job?.candidate === id ? job.result.series : sample?.[baseline];
+      const calculated = job?.candidate === id ? job.result.series : null;
       return {points: calculated || item.series, color: id === 'mpp' ? colors.accent : colors.comparison};
     });
-    if (!result.error && !result.panel) add(area, 'p', '当前孔径下限或厚度条件下，微穿孔板模板未通过。', 'note');
-    if (!result.error && !result.layer) add(area, 'p', '当前流阻率或频段超出经验模型的适用范围。', 'note');
-    byId('abs-source').textContent = result.error ? '补齐参数后生成曲线'
-      : job ? '本次 COMSOL 曲线 · ' + names[job.candidate] + '，其余为解析估算或预求解样例'
-      : sample ? '参赛工况 · COMSOL 6.4 预求解曲线' : '当前参数 · 解析初筛';
-    byId('thin-guidance').textContent = '刚性背衬、正入射、无平均流。该指标用于吸声部件比较。';
+    if (result.panelIssue) add(area, 'p', result.panelIssue, 'note');
+    if (result.materialIssue) add(area, 'p', result.materialIssue, 'note');
+    byId('abs-source').textContent = result.error ? '等待工况'
+      : job ? 'COMSOL · ' + names[job.candidate] + (series.length === 2 ? ' / 另一条为解析结果' : '')
+      : '当前工况 · 解析曲线';
+    byId('abs-empty').hidden = series.length > 0;
+    byId('abs-empty').textContent = result.error ? '完成工况配置后显示吸声曲线' : '当前条件下无可用吸声曲线';
+    byId('abs-legend').hidden = !series.length;
+    byId('abs-legend').children[0].hidden = !result.panel;
+    byId('abs-legend').children[1].hidden = !result.layer;
+    byId('structure-notes').hidden = !!result.error;
     byId('other-structures').textContent = result.error ? '' : '四分之一波长结构在中心频率附近需约 ' + display(result.quarterWave)
       + ' mm 声程。卷曲布置还需确认截面、弯折与损耗。侧支亥姆霍兹和消声器需确认风道净截面与接口。声学黑洞需先核实结构振动路径。';
     byId('submit-thin').disabled = !capabilities.solver || !thinChoice || pending;
     byId('download-thin').disabled = !items.length;
     links('thin', job);
     draw(byId('abs-chart'), series, null, '吸声系数 α', true);
+    syncCase();
   }
 
   function renderDuct() {
     const active = live.duct && ductSelected()?.structure === 'helmholtz' && same(getInputs(), live.duct.inputs) ? live.duct : null;
     byId('submit-duct').disabled = !capabilities.solver || pending || ductSelected()?.structure !== 'helmholtz';
     links('duct', active);
-    if (active) byId('sim-status').textContent = '本次 COMSOL 已求解 · 峰值 ' + active.result.peak[0] + ' Hz · ' + display(active.result.peak[1]) + ' dB。下图为原样例。';
+    byId('sim-status').textContent = active ? 'COMSOL · 峰值 ' + active.result.peak[0] + ' Hz / ' + display(active.result.peak[1]) + ' dB' : '等待当前工况求解';
+    byId('sim-empty').hidden = !!active;
+    byId('sim-legend').hidden = !active;
+    const points = active ? [
+      {points: active.result.reference, color: colors.comparison},
+      {points: active.result.resonator, color: colors.accent},
+    ] : [];
+    draw(byId('simulation-chart'), points, active?.inputs, '传声损失 / dB');
+    syncCase();
   }
 
   function switchTrack(mode) {
@@ -122,11 +159,17 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
       byId(key + '-track').hidden = key !== mode;
     }
     apply.hidden = true;
+    const [kicker, title, description, context] = trackMeta[mode];
+    byId('workspace-kicker').textContent = kicker;
+    byId('workspace-title').textContent = title;
+    byId('workspace-description').textContent = description;
+    byId('agent-context').textContent = context;
     if (mode === 'thin') renderThin();
     else { updateDuct(); renderDuct(); }
   }
 
   function message(text, own, steps = []) {
+    byId('chat-empty').hidden = true;
     const entry = add(chatLog, 'article', '', own ? 'chat-message user' : 'chat-message');
     add(entry, 'p', text);
     if (steps.length) {
@@ -223,6 +266,7 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
   byId('reset-agent').addEventListener('click', () => {
     ++turn;
     chatLog.replaceChildren();
+    byId('chat-empty').hidden = false;
     send.disabled = false;
     apply.hidden = true;
   });
@@ -238,43 +282,113 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
       const spectrum = parseSpectrum(await file.text());
       if (active !== upload) return;
       thinPeak = detectPeaks(spectrum).find(peak => peak.low >= 100 && peak.high <= 2500);
-      status.textContent = thinPeak ? '识别到 ' + thinPeak.frequency + ' Hz 主峰，已更新目标频段。' : '模板范围内未识别出突出的窄带峰，请手动填写频段。';
-      if (thinPeak) { populate(thinForm, thinPeak); renderThin(); }
+      status.textContent = thinPeak ? file.name + ' · 主峰 ' + thinPeak.frequency + ' Hz' : '频谱中未识别出合适的窄带峰，可填写目标频段。';
+      byId('apply-thin-peak').hidden = !thinPeak;
     } catch (error) {
       if (active === upload) status.textContent = error.message;
     }
   });
-  for (const [element, event] of [[ductForm, 'input'], [byId('candidates'), 'click'], [byId('peaks'), 'click'], [byId('load-demo'), 'click']]) {
+  byId('apply-thin-peak').addEventListener('click', () => {
+    if (thinPeak) { populate(thinForm, thinPeak); renderThin(); }
+  });
+  for (const [element, event] of [[ductForm, 'input'], [byId('candidates'), 'click']]) {
     element.addEventListener(event, renderDuct);
   }
-  byId('load-thin').addEventListener('click', () => {
-    upload++;
-    thinPeak = null;
-    byId('thin-upload').value = '';
-    byId('thin-upload-status').textContent = '两列为频率（Hz）与声级（dB）';
-    populate(thinForm, THIN_SAMPLE);
-    thinChoice = null;
-    renderThin();
+  function clearTrack(mode) {
+    live[mode] = null;
+    if (mode === 'thin') {
+      upload++;
+      thinPeak = null;
+      byId('thin-upload').value = '';
+      byId('thin-upload-status').textContent = 'CSV · 频率 Hz / 声级 dB';
+      byId('apply-thin-peak').hidden = true;
+      thinForm.reset();
+      thinChoice = null;
+      renderThin();
+    } else {
+      clearDuct();
+      renderDuct();
+    }
+    if (capabilities.solver && !pending) byId(mode + '-job-status').textContent = '';
+  }
+  byId('load-thin').addEventListener('click', () => clearTrack('thin'));
+  byId('load-demo').addEventListener('click', () => clearTrack('duct'));
+  byId('export-case').addEventListener('click', () => {
+    const clean = track === 'thin' ? cleanThin : cleanInputs;
+    saveJson('acoustic-workspace.json', {format: 'acoustic-workspace', version: 1, track, inputs: clean(inputsFor(track))});
+  });
+  byId('import-case').addEventListener('change', async event => {
+    const control = event.currentTarget;
+    const file = control.files[0];
+    if (!file) return;
+    const currentImport = ++caseImport;
+    control.value = '';
+    try {
+      if (file.size > 128_000) throw new Error('工况文件超过大小限制。');
+      const data = JSON.parse(await file.text());
+      if (currentImport !== caseImport) return;
+      if (data?.format !== 'acoustic-workspace' || data.version !== 1 || !Object.hasOwn(trackMeta, data.track)) {
+        throw new Error('请选择由工作台保存的工况 JSON 文件。');
+      }
+      const clean = data.track === 'thin' ? cleanThin : cleanInputs;
+      const values = clean(data.inputs);
+      if (!Object.values(values).some(value => normalize(value) !== null)) throw new Error('文件中没有工况参数。');
+      clearTrack(data.track);
+      populate(data.track === 'thin' ? thinForm : ductForm, values);
+      switchTrack(data.track);
+      showCaseStatus('已载入 ' + file.name);
+    } catch (error) {
+      if (currentImport === caseImport) showCaseStatus(error instanceof SyntaxError ? '文件中的 JSON 格式无效。' : error.message);
+    }
   });
   byId('download-thin').addEventListener('click', () => {
     const inputs = thinInputs();
     const result = evaluateThin(inputs);
     if (result.error) return;
     const file = {inputs, metric: 'normal incidence absorption', method: 'analytical', selected: thinChoice, candidates: result.items};
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], {type: 'application/json'}));
-    link.download = 'thin-acoustics-report.json';
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    saveJson('absorption-report.json', file);
   });
-  populate(thinForm, THIN_SAMPLE);
+
+  const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(location.hostname);
+  const publicWorkspace = 'https://yokifuture.github.io/yy/';
+  const dialog = byId('connection-dialog');
+  function openConnection() {
+    const current = new URL(location.href);
+    current.hash = '';
+    current.search = '';
+    byId('network-link').value = loopback ? (capabilities.publicUrl || publicWorkspace) : current.href;
+    byId('connection-summary').textContent = loopback
+      ? (capabilities.publicUrl ? '分享已配置的网络入口。' : '当前计算节点在本机。下方网址可跨设备选型，联网对话和实时求解需要接入部署入口。')
+      : '分享当前工作区地址。可用功能取决于模型服务及仿真节点的连接状态。';
+    byId('connection-model').textContent = capabilities.codex ? '当前连接 · Codex' : '当前连接 · 规则选型';
+    byId('connection-solver').textContent = capabilities.solver ? '当前连接 · COMSOL' : '当前连接 · 未接入';
+    byId('copy-status').textContent = '';
+    dialog.showModal();
+  }
+  byId('service-menu').addEventListener('click', openConnection);
+  byId('share-link').addEventListener('click', openConnection);
+  byId('copy-link').addEventListener('click', async () => {
+    const url = byId('network-link');
+    try {
+      await navigator.clipboard.writeText(url.value);
+      byId('copy-status').textContent = '链接已复制';
+    } catch {
+      url.select();
+      byId('copy-status').textContent = '链接已选中，可手动复制。';
+    }
+  });
+
   renderThin();
   const absorptionObserver = new ResizeObserver(renderThin);
   absorptionObserver.observe(byId('abs-chart'));
+  const ductObserver = new ResizeObserver(renderDuct);
+  ductObserver.observe(byId('simulation-chart'));
   api('status', undefined, 2500).then(info => { capabilities = info; }).catch(() => {}).finally(() => {
-    byId('provider-status').textContent = capabilities.codex ? 'Codex 已配置 · 由工程模板计算及校核。' : '网页演示 · 规则选型与已求解曲线。';
+    byId('service-status').textContent = capabilities.codex && capabilities.solver ? '服务已连接' : capabilities.codex || capabilities.solver ? '部分服务在线' : '工程选型';
+    byId('service-led').classList.toggle('connected', !!(capabilities.codex && capabilities.solver));
+    byId('provider-status').textContent = capabilities.codex ? 'Codex 已连接' : '规则选型 · 模型服务未连接';
     if (!capabilities.solver) {
-      for (const mode of ['thin', 'duct']) byId(mode + '-job-status').textContent = '实时求解需连接 COMSOL 节点。';
+      for (const mode of ['thin', 'duct']) byId(mode + '-job-status').textContent = 'COMSOL 节点未连接';
     }
     renderThin();
     renderDuct();

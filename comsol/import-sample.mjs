@@ -1,7 +1,8 @@
 import {copyFile, mkdir, readFile, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {SAMPLE, evaluate} from '../dist/engineering.mjs';
+import {evaluate} from '../dist/engineering.mjs';
+import {SAMPLE} from '../test/fixtures/inputs.mjs';
 
 const job = process.argv[2];
 if (!job) throw new Error('请传入 COMSOL 批处理任务目录。');
@@ -40,10 +41,10 @@ const peak = maxLoss(resonator.filter(([frequency]) => frequency >= SAMPLE.low &
 const sweepPeak = maxLoss(resonator);
 const data = {inputs: SAMPLE, geometry: modelGeometry, reference, resonator, peak, sweepPeak};
 const csv = ['frequency_hz,reference_tl_db,side_branch_tl_db', ...reference.map(([f, loss], i) => `${f},${loss},${resonator[i][1]}`)];
-await Promise.all([mkdir(join(root, 'models'), {recursive: true}), mkdir(join(root, 'dist/data'), {recursive: true})]);
+await Promise.all([mkdir(join(root, 'models'), {recursive: true}), mkdir(join(root, 'test/fixtures'), {recursive: true})]);
 await Promise.all([
-  writeFile(join(root, 'dist/simulation.mjs'), `export const simulation = ${JSON.stringify(data)};\n`),
-  writeFile(join(root, 'dist/data/transmission-loss.csv'), csv.join('\n') + '\n'),
+  writeFile(join(root, 'test/fixtures/simulation.mjs'), `export const simulation = ${JSON.stringify(data)};\n`),
+  writeFile(join(root, 'test/fixtures/transmission-loss.csv'), csv.join('\n') + '\n'),
   copyFile(join(job, 'reference.mph'), join(root, 'models/reference.mph')),
   copyFile(join(job, 'side-branch.mph'), join(root, 'models/side-branch.mph')),
 ]);

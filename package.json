@@ -1,7 +1,7 @@
 {
-  "name": "hood-acoustics-demo",
+  "name": "hood-acoustics-workspace",
   "private": true,
   "type": "module",
   "engines": {"node": ">=22"},
-  "scripts": {"start": "node server/index.mjs", "test": "node --test"}
+  "scripts": {"start": "node server/index.mjs", "test": "node --test test/engineering.test.mjs"}
 }

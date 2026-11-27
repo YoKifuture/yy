@@ -1,6 +1,7 @@
 import {readFile, writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import {evaluateThin, THIN_SAMPLE} from '../dist/absorbers.mjs';
+import {evaluateThin} from '../dist/absorbers.mjs';
+import {THIN_SAMPLE} from '../test/fixtures/inputs.mjs';
 import {readSweep} from '../server/solver.mjs';
 
 const dirs = process.argv.slice(2);
@@ -18,6 +19,6 @@ const result = {mpp: series[0], porous: series[1], db: series[2]};
 const csv = ['frequency_hz,mpp_alpha,miki_alpha,delany_bazley_alpha',
   ...result.mpp.map(([frequency, alpha], index) => [frequency, alpha, result.porous[index][1], result.db[index][1]].join(','))];
 await Promise.all([
-  writeFile(new URL('../dist/thin-evidence.mjs', import.meta.url), 'export const thinEvidence = ' + JSON.stringify(result) + ';\n'),
-  writeFile(new URL('../dist/data/thin-absorption.csv', import.meta.url), csv.join('\n') + '\n'),
+  writeFile(new URL('../test/fixtures/thin-evidence.mjs', import.meta.url), 'export const thinEvidence = ' + JSON.stringify(result) + ';\n'),
+  writeFile(new URL('../test/fixtures/thin-absorption.csv', import.meta.url), csv.join('\n') + '\n'),
 ]);

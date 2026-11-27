@@ -1,49 +1,34 @@
-# 烟机降噪选型与仿真 Agent
+# 声学研发工作台
 
-面向吸油烟机声学研发的无流方案筛选工具。输入目标频段或导入两列频谱，根据安装空间和工艺约束生成候选。参赛算例采用 600–1200 Hz 和 250 × 320 × 15 mm 的教学式包络，最小孔径 0.5 mm、安装预留 2 mm 和纤维流阻率 20,000 Pa·s/m² 为演示假设。
+用于吸油烟机的无平均流部件级分析。导入噪声频谱或设置目标频段，填写安装包络与加工条件，计算候选结构。工况可以导出为 JSON，供复用或跨设备导入。
 
-## 运行与分享
+## 在线工作区
 
-- **评委网页**由 GitHub Pages 托管 `dist/`。浏览器本地执行频谱分析、对话规则和工程选型。页面可切换到 COMSOL 6.4 预求解曲线。
-- **完整模式**启动 Node 服务后使用真实 Codex 和本机 COMSOL。评委终端只需要浏览器。运行节点需要可用的 Codex 环境和 COMSOL Acoustics Module 许可证。
+[打开声学研发工作台](https://yokifuture.github.io/yy/)
+
+GitHub Pages 托管浏览器工作区。频谱 CSV 在浏览器中解析。在线工作区可完成参数校核、解析选型和报告导出。Codex 对话和实时 COMSOL 根据服务状态启用。
+
+## 启动完整服务
+
+Windows 节点需要 Node.js 22 或更新版本，以及有权限的 Codex CLI 和 COMSOL Acoustics Module。项目运行无需安装 npm 依赖。
 
 ```powershell
 $env:HOOD_CODEX_COMMAND = (Get-Command codex).Source
 $env:HOOD_COMSOL_BIN = 'D:/COMSOL/Multiphysics/bin/win64'
-$env:HOOD_PORT = '8772'
+$env:HOOD_PORT = '8773'
 node server/index.mjs
 ```
 
-打开 `http://127.0.0.1:8772/`。Node 需要 22 或更新版本，无需安装项目依赖。Codex 使用当前运行账户已授权的 CLI 会话。在空的任务工作目录内运行，只接收用户当前输入和必要的条件 JSON，输出符合固定模式的数据，编排器只调用预定义工程工具。频谱原始 CSV 留在浏览器。模型推断出的额外条件须经用户确认，COMSOL 任务由用户在网页核对后提交。
+在运行节点打开 `http://127.0.0.1:8773/`。Codex 提取结构化工况，工程程序校核参数并运行模板。模型推断的额外值须经用户确认。COMSOL 执行队列一次处理一项任务，返回求解状态、曲线和可编辑 MPH 文件。
 
-服务默认监听本机。跨设备部署时，可由公司批准的 HTTPS 入口转发，并负责评委鉴权、并发和运行配额。设置 `HOOD_PUBLIC_HOST` 为评委入口的域名（非标准端口需一并填写），转发时保留该 Host。每个 COMSOL 节点一次执行一项任务，重启后任务索引需要重新建立。Codex 出错时页面显示本地规则回退。没有设置 `HOOD_COMSOL_BIN` 时仍可使用解析初筛和预求解曲线。替换为食神 AI 时，接入实际模型或平台工具协议并保留统一输入与结果校核。
+跨网络运行时，将固定 HTTPS 入口反向代理到同一个 Node 服务。设置 `HOOD_PUBLIC_HOST` 为外部域名并保留请求的 Host。将随机生成的访问口令通过运行环境变量 `HOOD_ACCESS_TOKEN` 注入，用户名为 `acoustic`。服务在该域名上鉴权，支持分享不含口令的网址。Node 服务可继续只监听回环地址。GitHub Pages 地址可独立保留为在线工程选型入口。
 
-## 可复核的案例
+## 工程工作流
 
-| 模板 | 默认测试边界 | COMSOL 结果 |
-| --- | --- | --- |
-| 浅背腔微穿孔板 | 0.5 mm 孔、1 mm 板、0.6% 开孔率、12 mm 刚性背腔 | 600–1200 Hz，41 点，平均正入射吸声系数 0.661 |
-| Miki 多孔纤维层 | 刚性背衬，13 mm，20,000 Pa·s/m² | 同一频段与采样，平均 0.142 |
-| Delany–Bazley 多孔纤维层 | 同一背衬、厚度和流阻率 | 同一频段与采样，平均 0.146 |
-| 侧支亥姆霍兹 | 另一组风道样例，空气域二维平面模态端口 | 150–950 Hz 两模型各 161 点，基准与侧支腔比较 |
+- 吸声模块以正入射吸声系数对比浅背腔微穿孔板和刚性背衬多孔纤维材料。多孔材料可用 Miki 或 Delany–Bazley 模型，需要由用户输入流阻率。
+- 风道消声根据主风道与侧挂空间筛选侧支结构。当前 COMSOL 模板计算侧支亥姆霍兹和相同风道的空直管基准。压力声学模型采用二维、刚壁、单平面模态。
+- `comsol/HoodAcoustics.java` 根据经校核的数值建立并保存模型。运行 `node --test` 核对公式、参数校验和参考曲线。
 
-薄型模块输出正入射吸声系数，侧支风道输出部件传声损失。模型假设无平均流。装机噪声改善需要结合声源和传递路径，在整机上复核。微穿孔板采用 Maa 型近似局部反应阻抗，未解析各孔、板弯曲、堵孔或油污。经验多孔模型用于适用范围内的高孔隙率纤维材料。侧支模型采用刚壁和单平面模态，未计热黏性损失。页面对卷曲通道、消声器和声学黑洞提供适用性说明。
+模型的指标与边界随结果显示。卷曲结构、声学黑洞、Creo 识别和论文复建仍需相应的工程模型与案例验证。
 
-## 验收
-
-1. 打开网页，确认默认频段、包络和两组正入射曲线。切换 Delany–Bazley 后查看对应曲线。
-2. 输入“频段改为 700–1100 Hz，厚度改为 12 mm”，确认参数与候选同步变化，曲线来源切换为当前参数的解析估算。
-3. 将最小孔径改为 2 mm，检查微穿孔板筛除。导入一份适用频段内的双列频谱，检查识别主峰、回填频段与手工编辑。
-4. 本机完整模式选择薄型候选运行 COMSOL，获取状态和下载 MPH 与 CSV。浏览器静态模式展示预求解证据。
-5. 切到侧支风道，检查原样例以及 380–460 Hz 目标频段内结果。分别运行 `node --test` 和 `node --check server/index.mjs`。
-
-## 工程实现
-
-- `dist/agent.mjs` 管理多轮工况、缺项和候选路由。`dist/engineering.mjs` 处理频谱和侧支方案。`dist/absorbers.mjs` 计算吸声系数并搜索尺寸。
-- `server/index.mjs` 提供应用 API。`server/codex.mjs` 调用 Codex CLI 并校验返回。`server/solver.mjs` 负责标量参数、队列、曲线验收与文件下载。
-- `comsol/HoodAcoustics.java` 生成、求解及保存可编辑模型。`comsol/run-sample.ps1` 执行 COMSOL 批处理，可在工作目录提供经白名单校验的 `job.properties`。
-- `comsol/import-thin.mjs` 将微穿孔板、Miki 与 Delany–Bazley 的 41 点参考结果转换为页面数据，校验与解析表达的差异。`comsol/import-sample.mjs` 验证直管基准与侧支样例。
-
-Creo 组件识别和任意论文自动复建属于后续集成。前者需要明确材料命名或 Creo 自定义属性约定、样件和导入许可，后者需要可追溯的参数和验证算例。实际食神服务、真实频谱和整机验证可按相同项目流程继续接入。
-
-参考 [COMSOL 阻抗边界](https://doc.comsol.com/6.4/doc/com.comsol.help.aco/aco_ug_pressure.05.023.html)、[COMSOL 多孔声学模型](https://doc.comsol.com/6.4/doc/com.comsol.help.aco/aco_ug_pressure.05.185.html)、[Miki 论文](https://doi.org/10.1250/ast.11.19) 和 [Codex CLI 平台文档](https://developers.openai.com/blog/codex-as-a-platform)。
+参考 [COMSOL 阻抗边界](https://doc.comsol.com/6.4/doc/com.comsol.help.aco/aco_ug_pressure.05.023.html)、[COMSOL 多孔声学模型](https://doc.comsol.com/6.4/doc/com.comsol.help.aco/aco_ug_pressure.05.185.html)、[Miki 论文](https://doi.org/10.1250/ast.11.19)。

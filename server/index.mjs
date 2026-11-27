@@ -1,6 +1,7 @@
 import {createReadStream} from 'node:fs';
 import {stat} from 'node:fs/promises';
 import {createServer} from 'node:http';
+import {createHash, timingSafeEqual} from 'node:crypto';
 import {extname, resolve, sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {cleanInputs, cleanThin, runThinTurn, runTurn} from '../dist/agent.mjs';
@@ -13,6 +14,16 @@ const solver = createSolver(process.env.HOOD_COMSOL_BIN);
 const host = process.env.HOOD_HOST || '127.0.0.1';
 const port = Number(process.env.HOOD_PORT || 8768);
 const publicHost = process.env.HOOD_PUBLIC_HOST?.toLowerCase();
+const publicUrl = publicHost && new URL('https://' + publicHost + '/');
+const accessToken = process.env.HOOD_ACCESS_TOKEN;
+if (publicUrl && (publicUrl.host !== publicHost || publicUrl.pathname !== '/' || publicUrl.username || publicUrl.password)) {
+  throw new Error('HOOD_PUBLIC_HOST must be a hostname with an optional port.');
+}
+if (publicHost && (!accessToken || accessToken.length < 24)) {
+  throw new Error('HOOD_ACCESS_TOKEN must contain at least 24 characters for network access.');
+}
+const digest = value => createHash('sha256').update(value).digest();
+const remoteLogin = accessToken && digest('acoustic:' + accessToken);
 const types = {'.html': 'text/html', '.mjs': 'text/javascript', '.css': 'text/css', '.csv': 'text/csv', '.json': 'application/json'};
 
 function json(response, status, data) {
@@ -41,6 +52,14 @@ createServer(async (request, response) => {
     if (!authority || ![publicHost, `127.0.0.1:${port}`, `localhost:${port}`].includes(authority)) {
       return json(response, 403, {error: '此服务地址未配置。'});
     }
+    if (publicHost && authority === publicHost) {
+      response.setHeader('Cache-Control', 'private, no-store');
+      const supplied = request.headers.authorization?.match(/^Basic ([A-Za-z0-9+/=]+)$/i)?.[1];
+      if (!supplied || !timingSafeEqual(digest(Buffer.from(supplied, 'base64')), remoteLogin)) {
+        response.setHeader('WWW-Authenticate', 'Basic realm="Acoustic Lab", charset="UTF-8"');
+        return json(response, 401, {error: '此工作区需要访问凭据。'});
+      }
+    }
     const path = new URL(request.url, 'http://localhost').pathname;
     const method = request.method;
     if (method === 'POST' && path.startsWith('/api/')) {
@@ -53,7 +72,7 @@ createServer(async (request, response) => {
       }
     }
     if (method === 'GET' && path === '/api/status') {
-      return json(response, 200, {codex: !!provider, solver: solver.enabled});
+      return json(response, 200, {codex: !!provider, solver: solver.enabled, publicUrl: publicUrl?.href});
     }
     if (method === 'POST' && path === '/api/agent') {
       const data = await body(request);

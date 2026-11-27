@@ -1,5 +1,5 @@
 const AIR = {speed: 343, density: 1.204, viscosity: 1.825e-5};
-export const THIN_SAMPLE = Object.freeze({low: 600, high: 1200, length: 250, width: 320, height: 15, min: .5, reserve: 2, resistivity: 20000, material: 'miki'});
+export const THIN_FIELDS = Object.freeze(['low', 'high', 'length', 'width', 'height', 'min', 'reserve', 'resistivity', 'material']);
 
 const alpha = (resistance, reactance) => 4 * resistance / ((1 + resistance) ** 2 + reactance ** 2);
 const average = points => points.reduce((sum, point) => sum + point[1], 0) / points.length;
@@ -36,7 +36,7 @@ export function porousResponse(frequency, thickness, resistivity, material) {
 
 export function evaluateThin(input) {
   const {low, high, length, width, height, min, reserve, resistivity, material} = input;
-  const labels = {low: '起始频率', high: '终止频率', length: '模块长', width: '模块宽', height: '模块总厚', min: '最小孔径', reserve: '安装预留', resistivity: '流阻率'};
+  const labels = {low: '起始频率', high: '终止频率', length: '模块长', width: '模块宽', height: '模块总厚', reserve: '安装预留'};
   for (const [key, label] of Object.entries(labels)) {
     if (!Number.isFinite(input[key])) return {error: `请补充${label}。`, focus: key};
     if (input[key] < 0 || (key !== 'reserve' && input[key] === 0)) return {error: `请检查${label}。`, focus: key};
@@ -45,11 +45,12 @@ export function evaluateThin(input) {
   if (Math.min(length, width) < 15 || height <= reserve || height > 100) {
     return {error: '模块长和宽各需至少 15 mm，总厚需大于安装预留且不超过 100 mm。', focus: 'height'};
   }
-  if (!['miki', 'db'].includes(material)) return {error: '请选择 Miki 或 Delany–Bazley。', focus: 'material'};
   const usable = height - reserve;
   const frequencies = Array.from({length: 41}, (_, i) => low + i * (high - low) / 40);
+  const hasMin = Number.isFinite(min) && min > 0;
+  const holeSizes = hasMin ? [.2, .25, .3, .35, .4, .45, .5, .6, .7, .8, 1, 1.2, 1.5] : [];
   let best = null;
-  for (const hole of [.2, .25, .3, .35, .4, .45, .5, .6, .7, .8, 1, 1.2, 1.5]) {
+  for (const hole of holeSizes) {
     if (hole < min) continue;
     for (const plate of [.4, .6, .8, 1, 1.2, 1.5]) {
       for (const depth of [...new Set([usable - plate, (usable - plate) * .75, (usable - plate) * .5])]) {
@@ -66,9 +67,14 @@ export function evaluateThin(input) {
       }
     }
   }
-  const porous = frequencies.map(f => [f, porousResponse(f, usable, resistivity, material)]);
-  const scoresValid = porous.every(([, value]) => Number.isFinite(value) && value >= 0 && value <= 1);
+  const hasMaterial = ['miki', 'db'].includes(material) && Number.isFinite(resistivity);
+  const porous = hasMaterial ? frequencies.map(f => [f, porousResponse(f, usable, resistivity, material)]) : [];
+  const scoresValid = hasMaterial && porous.every(([, value]) => Number.isFinite(value) && value >= 0 && value <= 1);
   const layer = scoresValid ? {id: 'porous', geometry: {thickness: usable, resistivity, material}, average: average(porous), series: porous} : null;
+  const materialIssue = !hasMaterial ? '选择材料模型并填写实测或供应商提供的流阻率，即可加入多孔层比较。'
+    : !layer ? '当前频段或流阻率超出该经验模型的适用范围。' : '';
+  const panelIssue = !hasMin ? '填写正数最小孔径，即可评估微穿孔板。'
+    : !best ? '当前孔径下限或厚度条件下，微穿孔板模板未通过。' : '';
   const quarterWave = AIR.speed * 1000 / (4 * Math.sqrt(low * high));
-  return {items: [best, layer].filter(Boolean).sort((a, b) => b.average - a.average), panel: best, layer, usable, quarterWave};
+  return {items: [best, layer].filter(Boolean).sort((a, b) => b.average - a.average), panel: best, layer, panelIssue, materialIssue, usable, quarterWave};
 }

@@ -1,14 +1,11 @@
-import {SAMPLE, detectPeaks, evaluate, parseSpectrum, sampleSpectrum} from './engineering.mjs';
-import {simulation} from './simulation.mjs';
+import {detectPeaks, evaluate, parseSpectrum} from './engineering.mjs';
 import {connectWorkbench} from './workbench.mjs';
 
 const byId = id => document.getElementById(id);
 const form = byId('parameters');
-const colors = {accent: '#00866b', comparison: '#788d8e', band: '#dceddf', grid: '#e1e9e2', text: '#496568'};
-let points = sampleSpectrum();
-let isSample = true;
+const colors = {accent: '#62e5f2', comparison: '#8aa8ff', band: '#307c9d40', grid: '#8ab6ff27', text: '#a7bbd3'};
+let points = [];
 let uploadRequest = 0;
-let verifiedInputs = null;
 let selectedId = null;
 let selectedPlan = null;
 
@@ -97,24 +94,20 @@ function draw(canvas, series, band, yUnit, scaleUnit = false) {
 }
 
 function getInputs() {
-  return Object.fromEntries(Object.keys(SAMPLE).map(key => [key, form.elements.namedItem(key).valueAsNumber]));
+  return Object.fromEntries([...form.elements].filter(field => field.name).map(field => [field.name, field.valueAsNumber]));
 }
 
 function drawCharts() {
   const {low, high} = getInputs();
   const band = Number.isFinite(low) && high > low ? {low, high} : null;
-  draw(byId('spectrum-chart'), [{points, color: colors.accent}], band, '声级 / dB');
-  if (simulation) {
-    draw(byId('simulation-chart'), [
-      {points: simulation.reference, color: colors.comparison},
-      {points: simulation.resonator, color: colors.accent},
-    ], simulation.inputs, '传声损失 / dB');
-  }
+  draw(byId('spectrum-chart'), points.length ? [{points, color: colors.accent}] : [], band, '声级 / dB');
 }
 
 function renderPeaks() {
   const parent = byId('peaks');
   parent.replaceChildren();
+  byId('spectrum-empty').hidden = points.length > 0;
+  if (!points.length) return;
   const peaks = detectPeaks(points);
   if (!peaks.length) add(parent, 'span', '未识别出突出窄带峰，可手动填写目标频段。', 'peak-note');
   for (const peakData of peaks) {
@@ -124,7 +117,7 @@ function renderPeaks() {
     peak.addEventListener('click', () => {
       form.elements.namedItem('low').value = peakData.low;
       form.elements.namedItem('high').value = peakData.high;
-      updateRecommendations();
+      form.dispatchEvent(new Event('input', {bubbles: true}));
     });
   }
 }
@@ -137,23 +130,6 @@ function addFacts(parent, facts) {
   }
 }
 
-function updateSimulationStatus(inputs, current) {
-  const fromSample = verifiedInputs && Object.keys(verifiedInputs).every(key => inputs[key] === verifiedInputs[key]);
-  if (!simulation) {
-    byId('sim-status').textContent = '样例求解数据尚未加载。';
-    byId('sim-note').textContent = '候选结构目前显示理论初筛尺寸。COMSOL 已求解曲线将在完成核对后载入。';
-    return;
-  }
-  const activeSample = fromSample && isSample && !current.error && selectedId === 'helmholtz';
-  byId('sim-status').textContent = activeSample
-    ? '演示样例已求解 · 侧支亥姆霍兹与空直管基准'
-    : '当前输入待求解 · 下方保留原演示样例的已求解曲线';
-  const peakFrequency = simulation.sweepPeak.frequency;
-  const outsideTarget = peakFrequency < simulation.inputs.low || peakFrequency > simulation.inputs.high;
-  const finding = outsideTarget ? `样例全扫频峰值位于 ${peakFrequency} Hz，落在目标频段外，需重新调谐。` : '';
-  byId('sim-note').textContent = `${finding}二维等截面、刚壁、无平均流，计算中未计入热黏性损耗。传声损失曲线用于部件选型验证。`;
-}
-
 function updateRecommendations(focusError = false) {
   const inputs = getInputs();
   const current = evaluate(inputs);
@@ -162,14 +138,14 @@ function updateRecommendations(focusError = false) {
   candidates.replaceChildren();
   selectedPlan = null;
   for (const field of form.querySelectorAll('input')) field.removeAttribute('aria-invalid');
-  errorNode.hidden = !current.error;
+  errorNode.hidden = !current.error || (!focusError && !Object.values(inputs).some(Number.isFinite));
   errorNode.textContent = current.error || '';
   byId('dimension-summary').textContent = current.error ? '' : `可用轴向长度 ${Number(current.usableLength.toFixed(2))} mm · 侧挂空间 ${Number(current.availableHeight.toFixed(2))} mm`;
   if (current.error) {
     const field = form.elements.namedItem(current.focus);
-    field.setAttribute('aria-invalid', 'true');
+    if (!errorNode.hidden) field.setAttribute('aria-invalid', 'true');
     if (focusError) field.focus();
-    add(candidates, 'p', '补齐或修正选型条件后生成候选。', 'note');
+    add(candidates, 'p', '补齐工况后显示候选结构。', 'note');
     byId('screening-note').textContent = '';
   } else {
     const selected = current.items.find(item => item.id === selectedId && item.fit) ?? current.items.find(item => item.fit);
@@ -205,19 +181,17 @@ function updateRecommendations(focusError = false) {
   }
   byId('download-selection').hidden = !selectedPlan;
   byId('selected-structure').textContent = selectedPlan ? `已选 ${selectedPlan.name}` : '';
-  updateSimulationStatus(inputs, current);
   drawCharts();
 }
 
-function loadSample() {
+function clearDuct() {
   ++uploadRequest;
-  isSample = true;
-  points = sampleSpectrum();
+  points = [];
   selectedId = null;
   byId('upload').value = '';
   byId('upload-error').hidden = true;
-  byId('spectrum-source').textContent = '合成演示频谱 · 声级仅用于识别频带';
-  for (const [key, val] of Object.entries(SAMPLE)) form.elements.namedItem(key).value = val;
+  byId('spectrum-source').textContent = 'CSV · 频率 Hz / 声级 dB';
+  form.reset();
   renderPeaks();
   updateRecommendations();
 }
@@ -232,12 +206,6 @@ byId('upload').addEventListener('change', async event => {
     const parsed = parseSpectrum(await file.text());
     if (request !== uploadRequest) return;
     points = parsed;
-    isSample = false;
-    const suggested = detectPeaks(points)[0];
-    if (suggested && suggested.low >= 50 && suggested.high <= 5000) {
-      form.elements.namedItem('low').value = suggested.low;
-      form.elements.namedItem('high').value = suggested.high;
-    }
     byId('spectrum-source').textContent = `${file.name} · ${points.length} 个频点 · 文件在浏览器中处理`;
     error.hidden = true;
     renderPeaks();
@@ -254,7 +222,6 @@ form.addEventListener('submit', event => {
   updateRecommendations(true);
 });
 form.addEventListener('input', () => updateRecommendations());
-byId('load-demo').addEventListener('click', loadSample);
 byId('download-selection').addEventListener('click', () => {
   if (!selectedPlan) return;
   const file = new Blob([JSON.stringify(selectedPlan, null, 2)], {type: 'application/json'});
@@ -266,30 +233,13 @@ byId('download-selection').addEventListener('click', () => {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 
-if (simulation) {
-  verifiedInputs = simulation.inputs;
-  byId('sim-plot').hidden = false;
-  const actions = byId('sim-actions');
-  actions.hidden = false;
-  addFacts(byId('simulation-facts'), [
-    ['样例目标频段', `${simulation.inputs.low}–${simulation.inputs.high} Hz`],
-    ['COMSOL 扫频', `${simulation.reference[0][0]}–${simulation.reference.at(-1)[0]} Hz`],
-    ['目标频段内峰值', `${simulation.peak.frequency} Hz · ${simulation.peak.loss.toFixed(1)} dB`],
-    ['全扫频峰值', `${simulation.sweepPeak.frequency} Hz · ${simulation.sweepPeak.loss.toFixed(1)} dB`],
-    ['腔体轴向长 × 高', `${simulation.geometry.cavityLength} × ${simulation.geometry.cavityHeight} mm`],
-  ]);
-  const csv = add(actions, 'a', '下载曲线 CSV', 'download');
-  csv.href = 'data/transmission-loss.csv';
-  csv.download = '';
-}
-
-loadSample();
+updateRecommendations();
 const observer = new ResizeObserver(drawCharts);
 observer.observe(byId('spectrum-chart'));
-observer.observe(byId('simulation-chart'));
 connectWorkbench({
   draw, add, addFacts, colors, getInputs,
-  peak: () => detectPeaks(points)[0],
+  peak: () => detectPeaks(points).find(item => item.low >= 50 && item.high <= 5000),
+  clearDuct,
   ductSelected: () => selectedPlan,
   updateDuct: selected => { if (selected) selectedId = selected; updateRecommendations(); },
 });

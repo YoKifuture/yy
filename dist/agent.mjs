@@ -1,5 +1,5 @@
 import {evaluate} from './engineering.mjs';
-import {evaluateThin} from './absorbers.mjs';
+import {evaluateThin, THIN_FIELDS} from './absorbers.mjs';
 
 export const fields = Object.freeze({
   low: '起始频率', high: '终止频率', length: '轴向长度', width: '模块宽度',
@@ -112,8 +112,7 @@ export function runTurn({message, inputs, peak, proposed}) {
 }
 
 export function cleanThin(source) {
-  const fields = ['low', 'high', 'length', 'width', 'height', 'min', 'reserve', 'resistivity'];
-  const numeric = Object.fromEntries(fields.flatMap(key => Number.isFinite(source?.[key]) ? [[key, source[key]]] : []));
+  const numeric = Object.fromEntries(THIN_FIELDS.flatMap(key => Number.isFinite(source?.[key]) ? [[key, source[key]]] : []));
   return {...numeric, material: ['db', 'miki'].includes(source?.material) ? source.material : null};
 }
 
@@ -149,7 +148,7 @@ export function runThinTurn({message, inputs, peak, proposed}) {
   const labels = {mpp: '微穿孔板', porous: current.material === 'db' ? 'Delany–Bazley 多孔层' : 'Miki 多孔层'};
   const ranking = result.items.map(item => `${labels[item.id]}的目标带平均正入射吸声系数为 ${item.average.toFixed(3)}`).join('，');
   if (selected === 'helmholtz') return answer('薄型模式用于分析刚性背衬吸声件。侧支亥姆霍兹需要净风道和侧挂空间，请切换到侧支风道模式。');
-  if (!choice) return answer('当前没有通过条件校核的目标候选。请检查孔径下限、预留厚度和流阻率。');
+  if (!choice) return answer(['当前没有通过条件校核的目标候选。', result.panelIssue, result.materialIssue].filter(Boolean).join(''));
   return answer(`${ranking}。优先验证${labels[choice.id]}。正入射吸声系数可用于部件方案筛选。${askSolve ? '可在薄型模块区核对并运行 COMSOL。' : ''}`,
     {selected: choice.id, showSolver: askSolve});
 }
