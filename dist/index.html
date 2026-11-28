@@ -17,7 +17,8 @@
         <div><strong>Acoustic Lab</strong><span>声学研发工作台</span></div>
       </div>
       <div class="topbar-right">
-        <button id="service-menu" class="service" type="button"><span id="service-led" class="led" aria-hidden="true"></span><span id="service-status">连接检查中</span></button>
+        <button id="service-menu" class="service" type="button" aria-label="查看连接状态"><span id="service-led" class="led" aria-hidden="true"></span><span id="service-status">连接检查中</span></button>
+        <label class="appearance-control" for="appearance"><span class="appearance-icon" aria-hidden="true"></span><span class="sr-only">外观</span><select id="appearance"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
         <button id="share-link" class="secondary share" type="button"><span class="link-icon" aria-hidden="true"></span>分享链接</button>
       </div>
     </header>
@@ -36,6 +37,7 @@
           <canvas id="workspace-wave" class="workspace-wave" aria-hidden="true"></canvas>
           <div class="workspace-title"><p class="eyebrow">频域分析 <span></span> 无平均流</p><h1 id="workspace-title">吸声模块分析</h1><p id="workspace-description">比较薄型微穿孔板与多孔材料的吸声性能。</p></div>
           <div class="case-actions">
+            <button id="motion-control" class="secondary motion-control" type="button" aria-label="动态粒子" aria-pressed="true" title="暂停动态粒子"><span class="motion-icon" aria-hidden="true"></span><span class="motion-label">粒子效果</span></button>
             <label class="secondary upload">导入工况<input id="import-case" type="file" accept=".json,application/json" aria-label="导入工况 JSON"></label>
             <button id="export-case" class="secondary" type="button" disabled>保存工况</button>
           </div>
@@ -69,8 +71,8 @@
             <section class="panel glass chart-panel" aria-labelledby="abs-heading">
               <div class="panel-head"><div><h2 id="abs-heading">正入射吸声系数</h2><p id="abs-source">等待工况</p></div><span class="metric">α</span></div>
               <div class="plot"><canvas id="abs-chart" role="img" aria-label="正入射吸声系数曲线" aria-describedby="abs-readout"></canvas><p id="abs-empty" class="plot-empty">完成工况配置后显示吸声曲线</p><span class="plot-crosshair" aria-hidden="true" hidden></span></div>
-              <output class="plot-readout" id="abs-readout" hidden></output>
-              <div class="axis-note" id="abs-legend" hidden><span class="legend">微穿孔板</span><span class="legend baseline">多孔纤维层</span></div>
+              <div class="plot-inspection"><output class="plot-readout" id="abs-readout" hidden></output><span class="plot-hint">点按图表可锁定频点</span><button class="peak clear-lock" type="button" hidden>解除锁定</button></div>
+              <div class="axis-note" id="abs-legend" hidden><button type="button" class="legend" data-series="mpp" aria-pressed="true">微穿孔板</button><button type="button" class="legend baseline" data-series="porous" aria-pressed="true">多孔纤维层</button></div>
               <p id="thin-guidance" class="note">正入射、刚性背衬 · 无平均流</p>
             </section>
 
@@ -109,7 +111,7 @@
               <div class="panel-head"><div><h2 id="spectrum-heading">噪声频谱</h2><p id="spectrum-source">CSV · 频率 Hz / 声级 dB</p></div><label class="upload secondary"><span class="plus-icon" aria-hidden="true">+</span> 导入频谱<input id="upload" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" aria-label="导入风道噪声频谱"></label></div>
               <p id="upload-error" class="error" role="alert" hidden></p>
               <div class="plot"><canvas id="spectrum-chart" role="img" aria-label="噪声频谱与目标频段" aria-describedby="spectrum-readout"></canvas><p id="spectrum-empty" class="plot-empty">导入频谱后可选择峰值频段</p><span class="plot-crosshair" aria-hidden="true" hidden></span></div>
-              <output class="plot-readout" id="spectrum-readout" hidden></output>
+              <div class="plot-inspection"><output class="plot-readout" id="spectrum-readout" hidden></output><span class="plot-hint">点按图表可锁定频点</span><button class="peak clear-lock" type="button" hidden>解除锁定</button></div>
               <div class="peak-row" id="peaks" aria-label="候选频段"></div>
             </section>
 
@@ -123,8 +125,8 @@
             <section id="verification" class="panel glass chart-panel verification-panel" aria-labelledby="verification-heading">
               <div class="panel-head"><div><h2 id="verification-heading">无流传声损失</h2><p id="sim-status" role="status">等待求解</p></div><span class="metric">dB</span></div>
               <div class="plot"><canvas id="simulation-chart" role="img" aria-label="COMSOL 无流传声损失曲线" aria-describedby="simulation-readout"></canvas><p id="sim-empty" class="plot-empty">运行 COMSOL 后显示曲线</p><span class="plot-crosshair" aria-hidden="true" hidden></span></div>
-              <output class="plot-readout" id="simulation-readout" hidden></output>
-              <div class="axis-note" id="sim-legend" hidden><span class="legend">侧支亥姆霍兹</span><span class="legend baseline">空直管基准</span></div>
+              <div class="plot-inspection"><output class="plot-readout" id="simulation-readout" hidden></output><span class="plot-hint">点按图表可锁定频点</span><button class="peak clear-lock" type="button" hidden>解除锁定</button></div>
+              <div class="axis-note" id="sim-legend" hidden><button type="button" class="legend" data-series="branch" aria-pressed="true">侧支亥姆霍兹</button><button type="button" class="legend baseline" data-series="reference" aria-pressed="true">空直管基准</button></div>
               <p id="sim-note" class="note">二维等截面压声模型 · 刚壁 · 单平面模态</p>
               <div class="sim-actions"><button id="submit-duct" class="primary" type="button" disabled>运行 COMSOL</button><span id="duct-job-status" role="status"></span></div>
               <div class="sim-actions" id="duct-artifacts"></div>

@@ -1,6 +1,7 @@
 import {detectPeaks, evaluate, parseSpectrum} from './engineering.mjs';
 import {connectWorkbench} from './workbench.mjs';
-import {draw, drawWorkspaceWave, colors} from './visuals.mjs';
+import {draw, refreshCharts, colors} from './visuals.mjs';
+import {setupAppearance} from './appearance.mjs';
 
 const byId = id => document.getElementById(id);
 const form = byId('parameters');
@@ -24,7 +25,7 @@ function getInputs() {
 function drawCharts() {
   const {low, high} = getInputs();
   const band = Number.isFinite(low) && high > low ? {low, high} : null;
-  draw(byId('spectrum-chart'), points.length ? [{points, color: colors.accent, label: '声级'}] : [], band, '声级 / dB');
+  draw(byId('spectrum-chart'), points.length ? [{id: 'level', points, color: colors.accent, label: '声级'}] : [], band, '声级 / dB');
 }
 
 function renderPeaks() {
@@ -160,9 +161,7 @@ byId('download-selection').addEventListener('click', () => {
 updateRecommendations();
 const observer = new ResizeObserver(drawCharts);
 observer.observe(byId('spectrum-chart'));
-const workspaceWave = byId('workspace-wave');
-const waveObserver = new ResizeObserver(() => drawWorkspaceWave(workspaceWave));
-waveObserver.observe(workspaceWave);
+setupAppearance(refreshCharts);
 connectWorkbench({
   draw, add, addFacts, colors, getInputs,
   peak: () => detectPeaks(points).find(item => item.low >= 50 && item.high <= 5000),

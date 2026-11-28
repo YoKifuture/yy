@@ -1,5 +1,5 @@
 export const colors = {
-  accent: '#63f7df', comparison: '#a79bff', band: '#55f5e41a', grid: '#9fbded22', text: '#a2b9cf',
+  accent: '--chart-accent', comparison: '--chart-comparison',
 };
 
 function resizeCanvas(canvas) {
@@ -11,36 +11,6 @@ function resizeCanvas(canvas) {
   const context = canvas.getContext('2d');
   context.scale(scale, scale);
   return {width, height, context};
-}
-
-export function drawWorkspaceWave(canvas) {
-  const frame = resizeCanvas(canvas);
-  if (!frame) return;
-  const {width, height, context: ctx} = frame;
-  const fade = ctx.createLinearGradient(0, 0, width, height * .3);
-  fade.addColorStop(0, '#4df7db00');
-  fade.addColorStop(.34, '#4df7db7a');
-  fade.addColorStop(.68, '#78c6ffb0');
-  fade.addColorStop(1, '#b29aff1f');
-
-  ctx.lineWidth = 1;
-  for (let row = 0; row < 19; row++) {
-    const depth = row / 18;
-    ctx.beginPath();
-    ctx.strokeStyle = fade;
-    ctx.globalAlpha = row % 6 === 0 ? .88 : .36;
-    for (let column = 0; column <= 160; column++) {
-      const progress = column / 160;
-      const envelope = Math.sin(Math.PI * progress) ** 1.5;
-      const phase = progress * 10.3 + depth * 4.1;
-      const elevation = Math.sin(phase) * .24 + Math.sin(phase * 1.73 + .5) * .06;
-      const x = width * progress;
-      const y = height * (.46 + (depth - .5) * .69 + elevation * envelope);
-      if (column === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-  }
 }
 
 function closestIndex(points, frequency) {
@@ -60,12 +30,17 @@ function chartCursor(canvas) {
   if (cursors.has(canvas)) return cursors.get(canvas);
   const line = canvas.parentElement.querySelector('.plot-crosshair');
   const output = document.getElementById(canvas.getAttribute('aria-describedby'));
-  const cursor = {scale: null, index: null};
+  const clearLock = output.parentElement.querySelector('.clear-lock');
+  const legend = canvas.closest('.chart-panel').querySelector('.axis-note:has([data-series])');
+  const cursor = {scale: null, index: null, pinned: null, hiddenSeries: new Set(), repaint: null};
 
   cursor.clear = () => {
     cursor.index = null;
+    cursor.pinned = null;
     line.hidden = true;
     output.hidden = true;
+    clearLock.hidden = true;
+    line.classList.remove('locked');
   };
 
   function show(index) {
@@ -81,37 +56,106 @@ function chartCursor(canvas) {
     line.style.left = xAt(frequency) + 'px';
     line.hidden = false;
     output.hidden = false;
+    clearLock.hidden = cursor.pinned === null;
+    line.classList.toggle('locked', cursor.pinned !== null);
+  }
+
+  function atPointer(event) {
+    const {series, frequencyAt, left, right} = cursor.scale;
+    const x = event.clientX - canvas.getBoundingClientRect().left;
+    return x < left || x > right ? null : closestIndex(series[0].points, frequencyAt(x));
+  }
+
+  function pin(index) {
+    cursor.pinned = cursor.scale.series[0].points[index][0];
+    show(index);
+  }
+
+  cursor.restoreLock = () => {
+    const {series, xMin, xMax} = cursor.scale;
+    if (cursor.pinned < xMin || cursor.pinned > xMax) cursor.clear();
+    else show(closestIndex(series[0].points, cursor.pinned));
+  };
+
+  function dismissPreview() {
+    if (cursor.pinned === null) cursor.clear();
   }
 
   canvas.addEventListener('pointermove', event => {
-    if (!cursor.scale) return;
-    const {series, frequencyAt, left, right} = cursor.scale;
-    const x = event.clientX - canvas.getBoundingClientRect().left;
-    if (x < left || x > right) return cursor.clear();
-    show(closestIndex(series[0].points, frequencyAt(x)));
+    if (!cursor.scale || cursor.pinned !== null || event.pointerType === 'touch') return;
+    const index = atPointer(event);
+    if (index === null) cursor.clear();
+    else show(index);
   });
-  canvas.addEventListener('pointerleave', cursor.clear);
-  canvas.addEventListener('blur', cursor.clear);
+  canvas.addEventListener('pointerleave', dismissPreview);
+  canvas.addEventListener('blur', dismissPreview);
+  canvas.addEventListener('click', event => {
+    if (!cursor.scale) return;
+    const index = atPointer(event);
+    if (index === null) return;
+    if (cursor.pinned === cursor.scale.series[0].points[index][0]) cursor.clear();
+    else pin(index);
+  });
+  clearLock.addEventListener('click', () => {
+    cursor.clear();
+    canvas.focus();
+  });
   canvas.addEventListener('keydown', event => {
-    if (!cursor.scale || !['ArrowLeft', 'ArrowRight', 'Escape'].includes(event.key)) return;
+    if (!cursor.scale || !['ArrowLeft', 'ArrowRight', 'Escape', 'Enter', ' '].includes(event.key)) return;
     event.preventDefault();
     if (event.key === 'Escape') return cursor.clear();
+    if (event.key === 'Enter' || event.key === ' ') return cursor.pinned === null ? pin(cursor.index ?? 0) : cursor.clear();
     const last = cursor.scale.series[0].points.length - 1;
     const next = (cursor.index ?? (event.key === 'ArrowRight' ? -1 : last + 1)) + (event.key === 'ArrowRight' ? 1 : -1);
-    show(Math.min(last, Math.max(0, next)));
+    const index = Math.min(last, Math.max(0, next));
+    if (cursor.pinned === null) show(index);
+    else pin(index);
   });
+  const legendButtons = [...(legend?.querySelectorAll('[data-series]') ?? [])];
+  for (const button of legendButtons) {
+    const id = button.dataset.series;
+    button.addEventListener('click', () => {
+      if (cursor.hiddenSeries.has(id)) cursor.hiddenSeries.delete(id);
+      else cursor.hiddenSeries.add(id);
+      cursor.repaint?.();
+    });
+  }
+  cursor.filter = series => {
+    const hidden = cursor.hiddenSeries;
+    if (series.length && series.every(line => hidden.has(line.id))) hidden.delete(series[0].id);
+    const shown = series.filter(line => !hidden.has(line.id));
+    if (legend) legend.hidden = !series.length;
+    for (const button of legendButtons) {
+      const id = button.dataset.series;
+      const checked = !hidden.has(id);
+      button.hidden = !series.some(line => line.id === id);
+      button.setAttribute('aria-pressed', String(checked));
+      button.disabled = checked && shown.length === 1;
+    }
+    return shown;
+  };
   cursors.set(canvas, cursor);
   return cursor;
 }
 
+export function refreshCharts() {
+  document.querySelectorAll('.plot canvas').forEach(canvas => {
+    cursors.get(canvas)?.repaint?.();
+  });
+}
+
 export function draw(canvas, series, band, yUnit, scaleUnit = false) {
   const cursor = chartCursor(canvas);
-  cursor.clear();
+  cursor.repaint = () => draw(canvas, series, band, yUnit, scaleUnit);
+  const shown = cursor.filter(series);
+  if (cursor.pinned === null || !series.length) cursor.clear();
   cursor.scale = null;
   canvas.removeAttribute('tabindex');
   const frame = resizeCanvas(canvas);
   if (!frame || !series.length) return;
   const {width, height, context: ctx} = frame;
+  const styles = getComputedStyle(canvas);
+  const color = name => styles.getPropertyValue(name).trim();
   const left = 49;
   const right = width - 20;
   const top = 26;
@@ -138,14 +182,14 @@ export function draw(canvas, series, band, yUnit, scaleUnit = false) {
   if (band && band.high > xMin && band.low < xMax) {
     const from = xAt(Math.max(xMin, band.low));
     const until = xAt(Math.min(xMax, band.high));
-    ctx.fillStyle = colors.band;
+    ctx.fillStyle = color('--chart-band');
     ctx.fillRect(from, top, until - from, bottom - top);
   }
   ctx.font = '11px ui-monospace, Consolas, monospace';
   ctx.textBaseline = 'middle';
   ctx.lineWidth = 1;
-  ctx.strokeStyle = colors.grid;
-  ctx.fillStyle = colors.text;
+  ctx.strokeStyle = color('--chart-grid');
+  ctx.fillStyle = color('--chart-text');
   for (let i = 0; i <= 4; i++) {
     const value = yMin + i * (yMax - yMin) / 4;
     const y = yAt(value);
@@ -176,9 +220,9 @@ export function draw(canvas, series, band, yUnit, scaleUnit = false) {
   ctx.beginPath();
   ctx.rect(left - 1, top - 3, right - left + 2, bottom - top + 6);
   ctx.clip();
-  for (const line of series) {
+  for (const line of shown) {
     ctx.beginPath();
-    ctx.strokeStyle = line.color;
+    ctx.strokeStyle = color(line.color);
     ctx.lineWidth = 1.75;
     ctx.lineJoin = 'round';
     line.points.forEach(([frequency, value], index) => {
@@ -189,10 +233,11 @@ export function draw(canvas, series, band, yUnit, scaleUnit = false) {
   }
   ctx.restore();
   cursor.scale = {
-    series, left, right, xAt,
+    series: shown, left, right, xAt, xMin, xMax,
     unit: scaleUnit ? '' : ' dB',
     decimals: scaleUnit ? 3 : 2,
     frequencyAt: x => xMin + (x - left) * (xMax - xMin) / (right - left),
   };
   canvas.tabIndex = 0;
+  if (cursor.pinned !== null) cursor.restoreLock();
 }

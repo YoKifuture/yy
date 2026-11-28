@@ -121,7 +121,7 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
         area.querySelector('[aria-pressed="true"]')?.focus();
       });
       const calculated = job?.candidate === id ? job.result.series : null;
-      return {points: calculated || item.series, color: id === 'mpp' ? colors.accent : colors.comparison, label: names[id]};
+      return {id, points: calculated || item.series, color: id === 'mpp' ? colors.accent : colors.comparison, label: id === 'mpp' ? '微穿孔板' : '多孔纤维层'};
     });
     if (result.panelIssue) add(area, 'p', result.panelIssue, 'note');
     if (result.materialIssue) add(area, 'p', result.materialIssue, 'note');
@@ -130,9 +130,6 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
       : '当前工况 · 解析曲线';
     byId('abs-empty').hidden = series.length > 0;
     byId('abs-empty').textContent = result.error ? '完成工况配置后显示吸声曲线' : '当前条件下无可用吸声曲线';
-    byId('abs-legend').hidden = !series.length;
-    byId('abs-legend').children[0].hidden = !result.panel;
-    byId('abs-legend').children[1].hidden = !result.layer;
     byId('structure-notes').hidden = !!result.error;
     byId('other-structures').textContent = result.error ? '' : '四分之一波长结构在中心频率附近需约 ' + display(result.quarterWave)
       + ' mm 声程。卷曲布置还需确认截面、弯折与损耗。侧支亥姆霍兹和消声器需确认风道净截面与接口。声学黑洞需先核实结构振动路径。';
@@ -149,10 +146,9 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
     links('duct', active);
     byId('sim-status').textContent = active ? 'COMSOL · 峰值 ' + active.result.peak[0] + ' Hz / ' + display(active.result.peak[1]) + ' dB' : '等待当前工况求解';
     byId('sim-empty').hidden = !!active;
-    byId('sim-legend').hidden = !active;
     const points = active ? [
-      {points: active.result.reference, color: colors.comparison, label: '空直管'},
-      {points: active.result.resonator, color: colors.accent, label: '侧支亥姆霍兹'},
+      {id: 'reference', points: active.result.reference, color: colors.comparison, label: '空直管'},
+      {id: 'branch', points: active.result.resonator, color: colors.accent, label: '侧支亥姆霍兹'},
     ] : [];
     draw(byId('simulation-chart'), points, active?.inputs, '传声损失 / dB');
     syncCase();
