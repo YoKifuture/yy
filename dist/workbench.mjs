@@ -1,14 +1,18 @@
-import {cleanInputs, cleanThin, fields, runThinTurn, runTurn} from './agent.mjs';
+import {cleanInputs, cleanThin, fields, parseRequest, runThinTurn, runTurn} from './agent.mjs';
 import {evaluateThin, THIN_FIELDS} from './absorbers.mjs';
-import {detectPeaks, parseSpectrum} from './engineering.mjs';
+import {detectPeaks, parseSpectrum, spectralProfile} from './engineering.mjs';
+import {recommendStructures} from './structure-screen.mjs';
+import {averageAbsorption} from './slit-model.mjs';
 
 const byId = id => document.getElementById(id);
-const names = {mpp: '浅背腔微穿孔板', porous: '刚性背衬多孔纤维层'};
+const names = {mpp: '浅背腔微穿孔板', porous: '刚性背衬多孔纤维层', 'quarter-wave': '四分之一波长直通道', coiled: '卷曲迷宫（单 U 形）'};
+const curveLabels = {mpp: '微穿孔板', porous: '多孔纤维层', 'quarter-wave': '直通道', coiled: '卷曲迷宫'};
+const canSolveThin = id => id === 'mpp' || id === 'porous';
 const display = value => Number(value.toFixed(2));
 const normalize = value => Number.isFinite(value) || (typeof value === 'string' && value) ? value : null;
 const same = (current, expected) => Object.keys(current).every(key => normalize(current[key]) === normalize(expected[key]));
 const trackMeta = {
-  thin: ['吸声模块分析', '比较薄型微穿孔板与多孔材料的吸声性能。', '吸声模块'],
+  thin: ['吸声模块分析', '按噪声频谱与安装包络筛选超构，比较目标频段内的吸声表现。', '吸声模块'],
   duct: ['风道消声分析', '核对安装空间，筛选侧支方案并计算频域传声损失。', '风道消声'],
 };
 
@@ -37,7 +41,7 @@ async function api(route, data, timeout = 5000) {
   return result;
 }
 
-export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, clearDuct, ductSelected, updateDuct}) {
+export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, clearDuct, ductSelected, updateDuct, renderStructureScreen}) {
   const thinForm = byId('thin-form');
   const ductForm = byId('parameters');
   const chatInput = byId('chat-input');
@@ -51,6 +55,7 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
   let capabilities = {};
   let turn = 0;
   let thinPeak;
+  let thinSpectrum = [];
   let upload = 0;
   let caseImport = 0;
 
@@ -59,6 +64,16 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
     return [key, key === 'material' ? field.value : field.valueAsNumber];
   }));
   const inputsFor = mode => mode === 'thin' ? thinInputs() : getInputs();
+  const profileFor = ({low, high}) => spectralProfile(thinSpectrum, low, high);
+  const palette = {mpp: colors.accent, porous: colors.comparison, 'quarter-wave': '--chart-straight', coiled: '--chart-coiled'};
+
+  function thinOptions(inputs, result) {
+    const profile = profileFor(inputs);
+    const screening = recommendStructures(inputs, result, 'thin', profile);
+    const items = [...(screening?.rankings ?? [])];
+    if (result.layer) items.push({...result.layer, average: averageAbsorption(result.layer.series, profile)});
+    return {screening, items, profile};
+  }
 
   function syncCase() {
     const inputs = inputsFor(track);
@@ -92,6 +107,8 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
   function renderThin() {
     const inputs = thinInputs();
     const result = evaluateThin(inputs);
+    const {screening, items, profile} = thinOptions(inputs, result);
+    renderStructureScreen(byId('thin-structure-screen'), screening);
     const area = byId('thin-candidates');
     const error = byId('thin-error');
     area.replaceChildren();
@@ -99,19 +116,22 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
     error.textContent = result.error || '';
     byId('thin-summary').textContent = result.error ? '' : '净厚 ' + display(result.usable) + ' mm';
     const job = live.thin && same(inputs, live.thin.inputs) ? live.thin : null;
-    const items = result.items ?? [];
-    if (result.error) add(area, 'p', '补齐工况后显示候选结构。', 'note');
+    if (result.error && !items.length) add(area, 'p', '补齐工况后显示候选结构。', 'note');
     if (!items.some(item => item.id === thinChoice)) thinChoice = items[0]?.id ?? null;
-    const series = items.map((item, index) => {
+    const series = items.map(item => {
       const {id, geometry: g} = item;
-      const card = add(area, 'article', '', index ? 'candidate' : 'candidate leading');
+      const preferred = id === screening?.priority;
+      const card = add(area, 'article', '', preferred ? 'candidate leading' : 'candidate');
       const header = add(card, 'header');
       add(header, 'h3', names[id]);
-      add(header, 'span', index ? '备选' : '优先验证', 'indicator');
-      add(card, 'p', '频带平均吸声系数 ' + item.average.toFixed(3) + '（解析模型）');
+      add(header, 'span', id === 'porous' ? '传统材料对照' : preferred ? '优先验证' : '备选', 'indicator');
+      add(card, 'p', (profile ? '频谱加权吸声系数 ' : '频带平均吸声系数 ') + item.average.toFixed(3) + '（解析）');
       addFacts(add(card, 'dl'), id === 'mpp'
         ? [['孔径', g.hole + ' mm'], ['板厚', g.plate + ' mm'], ['开孔率', display(g.ratio * 100) + '%'], ['背腔', display(g.depth) + ' mm']]
-        : [['厚度', display(g.thickness) + ' mm'], ['流阻率', g.resistivity + ' Pa·s/m²'], ['模型', g.material === 'db' ? 'D–B' : 'Miki']]);
+        : id === 'porous' ? [['厚度', display(g.thickness) + ' mm'], ['流阻率', g.resistivity + ' Pa·s/m²'], ['模型', g.material === 'db' ? 'D–B' : 'Miki']]
+          : [['声程', display(g.pathMM) + ' mm'], ['净缝高 × 通道宽', display(g.gap) + ' × ' + display(g.breadth) + ' mm'],
+            ['单元平面尺寸', display(g.cellLength) + ' × ' + display(g.cellWidth) + ' mm'], ['单元数量', String(g.cells)]]);
+      if (!canSolveThin(id)) add(card, 'p', '可导出尺寸与解析曲线。开口及拐弯的 COMSOL 模板待接入。');
       const button = add(card, 'button', thinChoice === id ? '已选用' : '选用此方案', 'secondary select-plan');
       button.type = 'button';
       button.setAttribute('aria-pressed', String(thinChoice === id));
@@ -121,19 +141,19 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
         area.querySelector('[aria-pressed="true"]')?.focus();
       });
       const calculated = job?.candidate === id ? job.result.series : null;
-      return {id, points: calculated || item.series, color: id === 'mpp' ? colors.accent : colors.comparison, label: id === 'mpp' ? '微穿孔板' : '多孔纤维层'};
+      return {id, points: calculated || item.series, color: palette[id], label: curveLabels[id]};
     });
     if (result.panelIssue) add(area, 'p', result.panelIssue, 'note');
     if (result.materialIssue) add(area, 'p', result.materialIssue, 'note');
-    byId('abs-source').textContent = result.error ? '等待工况'
-      : job ? 'COMSOL · ' + names[job.candidate] + (series.length === 2 ? ' / 另一条为解析结果' : '')
+    byId('abs-source').textContent = result.error && !series.length ? '等待工况'
+      : job ? 'COMSOL · ' + names[job.candidate] + (series.length > 1 ? ' / 其余曲线为解析结果' : '')
       : '当前工况 · 解析曲线';
     byId('abs-empty').hidden = series.length > 0;
     byId('abs-empty').textContent = result.error ? '完成工况配置后显示吸声曲线' : '当前条件下无可用吸声曲线';
-    byId('structure-notes').hidden = !!result.error;
-    byId('other-structures').textContent = result.error ? '' : '四分之一波长结构在中心频率附近需约 ' + display(result.quarterWave)
-      + ' mm 声程。卷曲布置还需确认截面、弯折与损耗。侧支亥姆霍兹和消声器需确认风道净截面与接口。声学黑洞需先核实结构振动路径。';
-    byId('submit-thin').disabled = !capabilities.solver || !thinChoice || pending;
+    byId('thin-guidance').textContent = '正入射、刚性背衬 · 无平均流'
+      + (thinSpectrum.length && inputs.low > 0 && inputs.high > inputs.low && !profile ? ' · 频谱未完整覆盖目标带，当前采用频带平均' : '');
+    byId('submit-thin').disabled = !capabilities.solver || !canSolveThin(thinChoice) || pending;
+    byId('submit-thin').title = thinChoice && !canSolveThin(thinChoice) ? '该候选可导出参数，通道 COMSOL 模板待接入' : '';
     byId('download-thin').disabled = !items.length;
     links('thin', job);
     draw(byId('abs-chart'), series, null, '吸声系数 α', true);
@@ -188,6 +208,13 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
     const form = mode === 'thin' ? thinForm : ductForm;
     const inputs = inputsFor(mode);
     const args = {message: text, inputs, track: mode, peak: mode === 'thin' ? thinPeak : peak()};
+    if (mode === 'thin') {
+      const parsed = parseRequest(text, true);
+      const hasBand = [inputs.low, inputs.high, parsed.patch.low, parsed.patch.high].some(Number.isFinite);
+      const band = parsed.usePeak || !hasBand ? thinPeak ?? inputs : inputs;
+      args.profile = profileFor({...band, ...parsed.patch});
+      args.activeCandidate = thinChoice;
+    }
     const local = mode === 'thin' ? runThinTurn : runTurn;
     message(text, true);
     send.disabled = true;
@@ -262,7 +289,7 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
     void converse(chatInput.value.trim());
     chatInput.value = '';
   });
-  byId('chat-compare').addEventListener('click', () => { if (!send.disabled) void converse('比较候选及依据'); });
+  byId('chat-compare').addEventListener('click', () => { if (!send.disabled) void converse('推荐并比较超构结构'); });
   byId('chat-sweep').addEventListener('click', () => { if (!send.disabled) void converse('提交仿真'); });
   byId('reset-agent').addEventListener('click', () => {
     ++turn;
@@ -282,9 +309,16 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
       if (file.size > 4 * 1024 * 1024) throw new Error('文件超过 4 MB。');
       const spectrum = parseSpectrum(await file.text());
       if (active !== upload) return;
+      thinSpectrum = spectrum;
       thinPeak = detectPeaks(spectrum).find(peak => peak.low >= 100 && peak.high <= 2500);
-      status.textContent = thinPeak ? file.name + ' · 主峰 ' + thinPeak.frequency + ' Hz' : '频谱中未识别出合适的窄带峰，可填写目标频段。';
+      const supported = {low: Math.max(100, spectrum[0][0]), high: Math.min(2500, spectrum.at(-1)[0])};
+      const available = supported.high > supported.low;
+      status.textContent = thinPeak ? file.name + ' · 主峰 ' + thinPeak.frequency + ' Hz'
+        : available ? file.name + ' · 可用频段 ' + supported.low + '–' + supported.high + ' Hz'
+          : '频谱与薄型模型的 100–2500 Hz 适用范围无重叠。';
       byId('apply-thin-peak').hidden = !thinPeak;
+      if (available && ![thinInputs().low, thinInputs().high].some(Number.isFinite)) populate(thinForm, thinPeak || supported);
+      renderThin();
     } catch (error) {
       if (active === upload) status.textContent = error.message;
     }
@@ -300,6 +334,7 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
     if (mode === 'thin') {
       upload++;
       thinPeak = null;
+      thinSpectrum = [];
       byId('thin-upload').value = '';
       byId('thin-upload-status').textContent = 'CSV · 频率 Hz / 声级 dB';
       byId('apply-thin-peak').hidden = true;
@@ -345,8 +380,10 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
   byId('download-thin').addEventListener('click', () => {
     const inputs = thinInputs();
     const result = evaluateThin(inputs);
-    if (result.error) return;
-    const file = {inputs, metric: 'normal incidence absorption', method: 'analytical', selected: thinChoice, candidates: result.items};
+    const {screening, items, profile} = thinOptions(inputs, result);
+    if (!items.length) return;
+    const file = {inputs, metric: 'normal incidence absorption', method: 'analytical', weighting: profile ? 'spectrum' : 'uniform',
+      selected: thinChoice, candidates: items, structureScreening: screening};
     saveJson('absorption-report.json', file);
   });
 

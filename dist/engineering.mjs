@@ -18,6 +18,28 @@ export function parseSpectrum(input) {
   return [...points].sort((left, right) => left[0] - right[0]);
 }
 
+export function spectralProfile(points, low, high) {
+  if (!points.length || !(low > 0) || !(high > low) || low < points[0][0] || high > points.at(-1)[0]) return null;
+  let right = 1;
+  const levels = Array.from({length: 41}, (_, index) => {
+    const frequency = index === 40 ? high : low + index * (high - low) / 40;
+    while (points[right][0] < frequency) right++;
+    const [f0, level0] = points[right - 1];
+    const [f1, level1] = points[right];
+    return level0 + (level1 - level0) * (frequency - f0) / (f1 - f0);
+  });
+  const maximum = Math.max(...levels);
+  return validateProfile({low, high, weights: levels.map(level => 10 ** ((level - maximum) / 10))});
+}
+
+export function validateProfile(profile) {
+  if (!Number.isFinite(profile?.low) || !Number.isFinite(profile?.high) || !(profile.low > 0)
+    || !(profile.high > profile.low) || !Array.isArray(profile.weights)
+    || profile.weights.length !== 41 || !profile.weights.every(weight => Number.isFinite(weight) && weight >= 0 && weight <= 1)
+    || !profile.weights.some(weight => weight > 0)) return null;
+  return profile;
+}
+
 export function detectPeaks(points) {
   const peaks = [];
   for (let i = 2; i < points.length - 2; i++) {

@@ -2,6 +2,7 @@ import {detectPeaks, evaluate, parseSpectrum} from './engineering.mjs';
 import {connectWorkbench} from './workbench.mjs';
 import {draw, refreshCharts, colors} from './visuals.mjs';
 import {setupAppearance} from './appearance.mjs';
+import {recommendStructures} from './structure-screen.mjs';
 
 const byId = id => document.getElementById(id);
 const form = byId('parameters');
@@ -55,9 +56,30 @@ function addFacts(parent, facts) {
   }
 }
 
+function renderStructureScreen(parent, screening) {
+  parent.replaceChildren();
+  if (!screening) {
+    add(parent, 'p', '填写目标频段与模块长、宽、高即可开始超构选型。', 'note');
+    return;
+  }
+  add(parent, 'p', screening.summary, 'selection-summary');
+  const grid = add(parent, 'div', '', 'candidate-grid structure-grid');
+  const labels = {model: '已有计算模板', analytic: '已算解析曲线', geometry: '几何可布置', blocked: '当前约束未通过', pending: '待补工况', conditional: '需确认声源路径'};
+  for (const candidate of screening.items) {
+    const active = candidate.id === screening.priority;
+    const card = add(grid, 'article', '', 'candidate' + (active ? ' leading' : candidate.status === 'blocked' ? ' rejected' : ''));
+    const head = add(card, 'header');
+    add(head, 'h3', candidate.name);
+    add(head, 'span', (active ? '优先验证 · ' : '') + labels[candidate.status], 'indicator');
+    add(card, 'p', candidate.reason);
+  }
+}
+
 function updateRecommendations(focusError = false) {
   const inputs = getInputs();
   const current = evaluate(inputs);
+  const screening = recommendStructures(inputs, current, 'duct');
+  renderStructureScreen(byId('duct-structure-screen'), screening);
   const errorNode = byId('input-error');
   const candidates = byId('candidates');
   candidates.replaceChildren();
@@ -77,7 +99,8 @@ function updateRecommendations(focusError = false) {
     selectedId = selected?.id ?? null;
     if (selected) {
       selectedPlan = {structure: selected.id, name: selected.name, inputs, tuningFrequencyHz: selected.fit.frequency,
-        geometry: Object.fromEntries(Object.entries(selected.fit).filter(([field]) => !['score', 'frequency'].includes(field)))};
+        geometry: Object.fromEntries(Object.entries(selected.fit).filter(([field]) => !['score', 'frequency'].includes(field))),
+        structureScreening: screening};
     }
     current.items.forEach((item, index) => {
       const css = item.fit ? (index === 0 ? 'candidate leading' : 'candidate') : 'candidate rejected';
@@ -163,7 +186,7 @@ const observer = new ResizeObserver(drawCharts);
 observer.observe(byId('spectrum-chart'));
 setupAppearance(refreshCharts);
 connectWorkbench({
-  draw, add, addFacts, colors, getInputs,
+  draw, add, addFacts, colors, getInputs, renderStructureScreen,
   peak: () => detectPeaks(points).find(item => item.low >= 50 && item.high <= 5000),
   clearDuct,
   ductSelected: () => selectedPlan,

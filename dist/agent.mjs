@@ -1,9 +1,10 @@
-import {evaluate} from './engineering.mjs';
+import {evaluate, validateProfile} from './engineering.mjs';
 import {evaluateThin, THIN_FIELDS} from './absorbers.mjs';
+import {recommendStructures} from './structure-screen.mjs';
 
 export const fields = Object.freeze({
   low: '起始频率', high: '终止频率', length: '轴向长度', width: '模块宽度',
-  height: '模块高度', duct: '保留风道高度', allowance: '接口及装配占用', min: '最小可制造开口',
+  height: '模块高度', duct: '保留风道高度', allowance: '接口及装配占用', min: '最小可制造开口', wall: '盖板与隔墙等厚值',
 });
 
 const measure = '(\\d+(?:\\.\\d+)?)';
@@ -15,6 +16,7 @@ const dimensionLabels = {
   duct: '保留风道高度|风道净高|主风道高度|风道高度|风道',
   allowance: '接口及装配占用|接口和装配占用|装配占用|接口占用|接口和装配|预留',
   min: '最小可制造开口|最小孔径|最小开口|开口下限|孔径下限',
+  wall: '盖板与隔墙等厚值|通道壁厚|隔墙壁厚|隔墙厚度|壁厚',
 };
 const toHz = (value, unit) => Number(value) * (unit?.toLowerCase() === 'khz' ? 1000 : 1);
 const toMM = (value, unit) => Number(value) * ({m: 1000, cm: 10}[unit?.toLowerCase()] || 1);
@@ -55,13 +57,28 @@ export function parseRequest(message, thin = false) {
   const askSolve = /(?:运行|提交|开始|执行|重跑|计算).{0,5}(?:仿真|求解|COMSOL)/i.test(input);
   const selected = /(?:选用|选定|选择|改用|用).{0,5}(?:微穿孔板|MPP)/i.test(input) ? 'perforate'
     : /(?:选用|选定|选择|改用|用).{0,5}亥姆霍兹/.test(input) ? 'helmholtz' : null;
-  const compare = /比较|对比|依据|理由|为什么|优先|重新筛选|推荐/.test(input);
+  const compare = /比较|对比|依据|理由|为什么|优先|重新筛选|推荐|超构|迷宫|黑洞|哪种|选什么|适合/.test(input);
   return {patch, conflicts: [...conflicts], usePeak, askSolve, selected, compare};
 }
 
 export function cleanInputs(source) {
   return Object.fromEntries(Object.keys(fields).flatMap(key =>
     Number.isFinite(source?.[key]) ? [[key, source[key]]] : []));
+}
+
+function describeScreening(screening) {
+  const ranked = screening.rankings.map((item, index) =>
+    `${index + 1}. ${screening.items.find(family => family.id === item.id).name}　${item.average.toFixed(3)}`);
+  const other = screening.items.filter(item => !screening.rankings.some(candidate => candidate.id === item.id));
+  return [screening.summary, ...ranked, ...other.map(item => `${item.name}。 ${item.reason}`)].join('\n');
+}
+
+function selectedPeak(peak, parsed, inputs, trace) {
+  if (!peak) return {};
+  const hasBand = [inputs?.low, inputs?.high, parsed.patch.low, parsed.patch.high].some(Number.isFinite);
+  if (!parsed.usePeak && (!parsed.compare || hasBand)) return {};
+  trace.push({label: '目标频段', detail: `采用频谱主峰的 ${peak.low}–${peak.high} Hz 频段。`});
+  return {low: peak.low, high: peak.high};
 }
 
 export function runTurn({message, inputs, peak, proposed}) {
@@ -86,16 +103,21 @@ export function runTurn({message, inputs, peak, proposed}) {
     const suggestion = proposedValues.length ? `模型提取到 ${proposedValues.join('、')}。请核对后填入选型条件。` : '';
     return answer(suggestion || '可以说“目标 380–460 Hz，模块高度改为 140 mm”，也可以要求比较候选、按主峰筛选或提交仿真。');
   }
-  const confirmed = {...(parsed.usePeak ? {low: peak.low, high: peak.high} : {}), ...patch};
+  const confirmed = {...selectedPeak(peak, parsed, inputs, trace), ...patch};
   const updated = {...cleanInputs(inputs), ...confirmed};
   const changes = Object.keys(confirmed).filter(key => confirmed[key] !== inputs?.[key]);
   if (changes.length) trace.push({label: '更新条件', detail: changes.map(key => fields[key]).join('、')});
-  const missing = Object.keys(fields).filter(key => !Number.isFinite(updated[key]));
+  const result = evaluate(updated);
+  const screening = recommendStructures(updated, result, 'duct');
+  if ((parsed.compare || proposed?.compare === true) && screening && !parsed.selected && !parsed.askSolve) {
+    trace.push({label: '超构选型', detail: `检查了 ${screening.items.length} 种结构的条件。`});
+    return answer(describeScreening(screening), {inputs: updated, suggestions: inferred});
+  }
+  const missing = Object.keys(fields).filter(key => key !== 'wall' && !Number.isFinite(updated[key]));
   if (missing.length) {
     trace.push({label: '校验约束', detail: `缺少 ${missing.length} 项。`});
     return answer(`已记录当前条件。请补充${missing.map(key => fields[key]).join('、')}。`, {inputs: updated, suggestions: inferred});
   }
-  const result = evaluate(updated);
   trace.push({label: '执行选型', detail: result.error || `有 ${result.items.filter(item => item.fit).length} 个模板通过初筛。`});
   if (result.error) return answer(result.error, {inputs: updated});
   const choice = parsed.selected ? result.items.find(item => item.id === parsed.selected) : result.items.find(item => item.fit);
@@ -103,10 +125,12 @@ export function runTurn({message, inputs, peak, proposed}) {
     : choice ? `${choice.name}当前不可用。${choice.reason}` : '这组限制下两个模板均未通过。';
   const alternative = parsed.compare ? result.items.filter(item => item !== choice).map(item => `${item.name}　${item.reason}`).join('\n') : '';
   const remark = proposedValues.length ? `模型还提取到 ${proposedValues.join('、')}，请核对后填入表单。` : '';
-  return answer([leading, alternative, remark, parsed.askSolve && '已准备仿真参数，可在求解区核对并运行。'].filter(Boolean).join('\n'), {
+  const canSolve = choice?.id === 'helmholtz' && !!choice.fit;
+  const solverMessage = parsed.askSolve && (canSolve ? '已准备仿真参数，可在求解区核对并运行。' : '当前风道求解模板支持通过初筛的侧支亥姆霍兹。');
+  return answer([leading, alternative, remark, solverMessage].filter(Boolean).join('\n'), {
     inputs: updated,
     selected: choice?.fit ? choice.id : null,
-    showSolver: parsed.askSolve && !!choice?.fit,
+    showSolver: parsed.askSolve && canSolve,
     suggestions: inferred,
   });
 }
@@ -116,8 +140,9 @@ export function cleanThin(source) {
   return {...numeric, material: ['db', 'miki'].includes(source?.material) ? source.material : null};
 }
 
-export function runThinTurn({message, inputs, peak, proposed}) {
-  const {patch, conflicts, usePeak, askSolve, selected, compare} = parseRequest(message, true);
+export function runThinTurn({message, inputs, peak, proposed, profile, activeCandidate}) {
+  const parsed = parseRequest(message, true);
+  const {patch, conflicts, usePeak, askSolve, selected, compare} = parsed;
   const material = /(?:改用|换成|切换到|选用|使用|用)\s*(miki|delany[–— -]?bazley|db)\b/i.exec(message)?.[1]?.toLowerCase();
   const trace = [{label: '解析需求', detail: '读取目标频段、薄型模块包络和选型意图。'}];
   const current = cleanThin(inputs);
@@ -128,7 +153,7 @@ export function runThinTurn({message, inputs, peak, proposed}) {
   if (conflicts.length) return answer(`同一轮给出了不同的${conflicts.map(key => fields[key]).join('和')}，请确认具体数值。`);
   if (Object.hasOwn(patch, 'duct') || Object.hasOwn(patch, 'allowance')) return answer('这些风道参数请在侧支风道模式设置。薄型模块需要安装预留，可在表单中填写。');
   if (usePeak && !peak) return answer('请先导入含有可识别主峰的频谱，或直接指定目标频段。');
-  const changed = {...(usePeak ? {low: peak.low, high: peak.high} : {}), ...patch};
+  const changed = {...selectedPeak(peak, parsed, current, trace), ...patch};
   if (!Object.keys(changed).length && !material && !askSolve && !selected && !compare && proposed?.compare !== true) {
     return answer(Object.keys(suggestions).length ? '已提取待确认的参数。核对后可应用到表单。'
       : '可以说“频段改为 700–1100 Hz，厚度改成 12 mm”，或要求比较候选、按主峰筛选和提交仿真。');
@@ -142,9 +167,19 @@ export function runThinTurn({message, inputs, peak, proposed}) {
     trace.push({label: '更新条件', detail: updates.join('、')});
   }
   const result = evaluateThin(current);
+  const screening = recommendStructures(current, result, 'thin', validateProfile(profile));
+  if (screening && !selected && !material && !askSolve && (compare || proposed?.compare === true || !result.error)) {
+    trace.push({label: '超构选型', detail: `检查了 ${screening.items.length} 种结构的条件。`});
+    return answer(describeScreening(screening));
+  }
+  if (askSolve && !selected && !material && ['quarter-wave', 'coiled'].includes(activeCandidate)
+    && screening?.rankings.some(item => item.id === activeCandidate)) {
+    return answer('当前通道方案可导出尺寸和解析曲线。需建立开口、弯道与损耗边界的模型，再运行通道仿真。');
+  }
   trace.push({label: '执行选型', detail: result.error || `${result.items.length} 个候选有有效的计算结果。`});
   if (result.error) return answer(result.error);
-  const choice = selected === 'perforate' ? result.panel : material ? result.layer : result.items[0];
+  const choice = selected === 'perforate' ? result.panel
+    : material ? result.layer : result.items.find(item => askSolve && item.id === activeCandidate) ?? result.items[0];
   const labels = {mpp: '微穿孔板', porous: current.material === 'db' ? 'Delany–Bazley 多孔层' : 'Miki 多孔层'};
   const ranking = result.items.map(item => `${labels[item.id]}的目标带平均正入射吸声系数为 ${item.average.toFixed(3)}`).join('，');
   if (selected === 'helmholtz') return answer('薄型模式用于分析刚性背衬吸声件。侧支亥姆霍兹需要净风道和侧挂空间，请切换到侧支风道模式。');

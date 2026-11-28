@@ -1,5 +1,5 @@
 const AIR = {speed: 343, density: 1.204, viscosity: 1.825e-5};
-export const THIN_FIELDS = Object.freeze(['low', 'high', 'length', 'width', 'height', 'min', 'reserve', 'resistivity', 'material']);
+export const THIN_FIELDS = Object.freeze(['low', 'high', 'length', 'width', 'height', 'min', 'reserve', 'resistivity', 'material', 'wall']);
 
 const alpha = (resistance, reactance) => 4 * resistance / ((1 + resistance) ** 2 + reactance ** 2);
 const average = points => points.reduce((sum, point) => sum + point[1], 0) / points.length;
@@ -46,7 +46,7 @@ export function evaluateThin(input) {
     return {error: '模块长和宽各需至少 15 mm，总厚需大于安装预留且不超过 100 mm。', focus: 'height'};
   }
   const usable = height - reserve;
-  const frequencies = Array.from({length: 41}, (_, i) => low + i * (high - low) / 40);
+  const frequencies = Array.from({length: 41}, (_, i) => i === 40 ? high : low + i * (high - low) / 40);
   const hasMin = Number.isFinite(min) && min > 0;
   const holeSizes = hasMin ? [.2, .25, .3, .35, .4, .45, .5, .6, .7, .8, 1, 1.2, 1.5] : [];
   let best = null;
@@ -75,6 +75,5 @@ export function evaluateThin(input) {
     : !layer ? '当前频段或流阻率超出该经验模型的适用范围。' : '';
   const panelIssue = !hasMin ? '填写正数最小孔径，即可评估微穿孔板。'
     : !best ? '当前孔径下限或厚度条件下，微穿孔板模板未通过。' : '';
-  const quarterWave = AIR.speed * 1000 / (4 * Math.sqrt(low * high));
-  return {items: [best, layer].filter(Boolean).sort((a, b) => b.average - a.average), panel: best, layer, panelIssue, materialIssue, usable, quarterWave};
+  return {items: [best, layer].filter(Boolean).sort((a, b) => b.average - a.average), panel: best, layer, panelIssue, materialIssue, usable};
 }

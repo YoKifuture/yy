@@ -93,7 +93,7 @@ createServer(async (request, response) => {
         }
       }
       const run = thin ? runThinTurn : runTurn;
-      return json(response, 200, {...run({message, inputs, peak, proposed}), mode});
+      return json(response, 200, {...run({message, inputs, peak, proposed, profile: data.profile, activeCandidate: data.activeCandidate}), mode});
     }
     if (method === 'POST' && path === '/api/jobs') {
       const data = await body(request);
