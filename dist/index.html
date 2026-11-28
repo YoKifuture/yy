@@ -37,7 +37,6 @@
           <canvas id="workspace-wave" class="workspace-wave" aria-hidden="true"></canvas>
           <div class="workspace-title"><p class="eyebrow">频域分析 <span></span> 无平均流</p><h1 id="workspace-title">吸声模块分析</h1><p id="workspace-description">比较薄型微穿孔板与多孔材料的吸声性能。</p></div>
           <div class="case-actions">
-            <button id="motion-control" class="secondary motion-control" type="button" aria-label="动态粒子" aria-pressed="true" title="暂停动态粒子"><span class="motion-icon" aria-hidden="true"></span><span class="motion-label">粒子效果</span></button>
             <label class="secondary upload">导入工况<input id="import-case" type="file" accept=".json,application/json" aria-label="导入工况 JSON"></label>
             <button id="export-case" class="secondary" type="button" disabled>保存工况</button>
           </div>
@@ -76,7 +75,7 @@
               <p id="thin-guidance" class="note">正入射、刚性背衬 · 无平均流</p>
             </section>
 
-            <section class="panel glass" aria-labelledby="thin-candidates-heading">
+            <section class="panel glass candidates-panel" aria-labelledby="thin-candidates-heading">
               <div class="panel-head"><div><h2 id="thin-candidates-heading">候选结构</h2><p id="thin-summary"></p></div></div>
               <div class="candidate-grid" id="thin-candidates"></div>
               <details class="note" id="structure-notes" hidden><summary>其他结构的适用条件</summary><p id="other-structures"></p></details>
@@ -115,7 +114,7 @@
               <div class="peak-row" id="peaks" aria-label="候选频段"></div>
             </section>
 
-            <section class="panel glass" aria-labelledby="recommendations-heading">
+            <section class="panel glass candidates-panel" aria-labelledby="recommendations-heading">
               <div class="panel-head"><div><h2 id="recommendations-heading">候选结构</h2><p id="dimension-summary"></p></div></div>
               <div id="candidates" class="candidate-grid"></div>
               <p id="screening-note" class="note"></p>

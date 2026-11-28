@@ -9,15 +9,12 @@ function stored(key, value) {
 
 export function setupAppearance(onThemeChange) {
   const themeControl = document.getElementById('appearance');
-  const motionControl = document.getElementById('motion-control');
   const canvas = document.getElementById('workspace-wave');
   const hero = canvas.parentElement;
   const systemLight = matchMedia('(prefers-color-scheme: light)');
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
   const initialTheme = stored('acoustic-theme');
   themeControl.value = ['light', 'dark'].includes(initialTheme) ? initialTheme : 'system';
-  let motionChoice = stored('acoustic-motion');
-  let moving = false;
   let light = false;
   let clock = 0;
   let animation = null;
@@ -97,20 +94,13 @@ export function setupAppearance(onThemeChange) {
   }
 
   function syncAnimation() {
-    const animate = moving && visible && !document.hidden;
+    const animate = !reducedMotion.matches && visible && !document.hidden;
     if (animate && animation === null) animation = requestAnimationFrame(tick);
     if (!animate && animation !== null) {
       cancelAnimationFrame(animation);
       animation = null;
       lastFrame = null;
     }
-  }
-
-  function updateMotion() {
-    moving = motionChoice === 'on' || (motionChoice !== 'off' && !reducedMotion.matches);
-    motionControl.setAttribute('aria-pressed', String(moving));
-    motionControl.title = moving ? '暂停动态粒子' : '启动动态粒子';
-    syncAnimation();
   }
 
   function updateTheme() {
@@ -125,20 +115,15 @@ export function setupAppearance(onThemeChange) {
     stored('acoustic-theme', themeControl.value);
     updateTheme();
   });
-  motionControl.addEventListener('click', () => {
-    motionChoice = moving ? 'off' : 'on';
-    stored('acoustic-motion', motionChoice);
-    updateMotion();
-  });
   hero.addEventListener('pointermove', event => {
-    if (!moving || event.pointerType === 'touch') return;
+    if (reducedMotion.matches || event.pointerType === 'touch') return;
     const bounds = hero.getBoundingClientRect();
     targetX = ((event.clientX - bounds.left) / bounds.width - .5) * 24;
     targetY = ((event.clientY - bounds.top) / bounds.height - .5) * 20;
   });
   hero.addEventListener('pointerleave', () => { targetX = targetY = 0; });
   systemLight.addEventListener('change', updateTheme);
-  reducedMotion.addEventListener('change', updateMotion);
+  reducedMotion.addEventListener('change', syncAnimation);
   document.addEventListener('visibilitychange', syncAnimation);
   new IntersectionObserver(([entry]) => {
     visible = entry.isIntersecting;
@@ -156,5 +141,5 @@ export function setupAppearance(onThemeChange) {
     render();
   }).observe(canvas);
   updateTheme();
-  updateMotion();
+  syncAnimation();
 }
