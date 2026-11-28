@@ -188,6 +188,7 @@ setupAppearance(refreshCharts);
 connectWorkbench({
   draw, add, addFacts, colors, getInputs, renderStructureScreen,
   peak: () => detectPeaks(points).find(item => item.low >= 50 && item.high <= 5000),
+  ductSpectrum: () => points,
   clearDuct,
   ductSelected: () => selectedPlan,
   updateDuct: selected => { if (selected) selectedId = selected; updateRecommendations(); },

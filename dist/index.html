@@ -28,6 +28,7 @@
         <nav class="nav" aria-label="声学分析工作区">
           <button id="show-thin" type="button" aria-pressed="true"><span class="nav-icon thin-icon" aria-hidden="true"></span><span>吸声模块<small>正入射吸声系数</small></span></button>
           <button id="show-duct" type="button" aria-pressed="false"><span class="nav-icon duct-icon" aria-hidden="true"></span><span>风道消声<small>传声损失</small></span></button>
+          <button id="open-papers" type="button"><span>论文复现<small>COMSOL 与推荐库</small></span></button>
         </nav>
         <a class="aside-link" href="#agent">声学助手 <span aria-hidden="true">↗</span></a>
       </div>
@@ -83,6 +84,7 @@
               <div class="candidate-grid" id="thin-candidates"></div>
               <div class="sim-actions" id="thin-solver"><button id="submit-thin" class="primary" type="button" disabled>运行 COMSOL</button><button id="download-thin" class="secondary" type="button" disabled>导出选型报告</button><span id="thin-job-status" role="status"></span></div>
               <div class="sim-actions" id="thin-artifacts"></div>
+              <div id="thin-paper-options" hidden></div>
             </section>
           </section>
 
@@ -123,6 +125,7 @@
               <h3 class="selection-subhead">风道计算模板</h3>
               <div id="candidates" class="candidate-grid"></div>
               <p id="screening-note" class="note"></p>
+              <div id="duct-paper-options" hidden></div>
               <div class="sim-actions"><button type="button" class="secondary" id="download-selection" hidden>导出选型报告</button><span id="selected-structure" role="status"></span></div>
             </section>
 
@@ -160,6 +163,61 @@
       <label class="link-field" for="network-link">可分享的网址<input id="network-link" readonly></label>
       <div class="sim-actions"><button id="copy-link" class="primary" type="button">复制链接</button><p id="copy-status" role="status"></p></div>
     </form>
+  </dialog>
+  <dialog id="paper-dialog" class="dialog glass paper-dialog" aria-labelledby="paper-title">
+    <div class="panel-head"><div><h2 id="paper-title">论文复现与推荐库</h2><p id="paper-connection" role="status"></p></div><form method="dialog"><button class="secondary quiet" value="close">关闭</button></form></div>
+    <div class="paper-workflow">
+      <section class="paper-stage">
+        <h3>读取论文</h3>
+        <div class="file-row"><label class="secondary upload">选择论文 PDF<input id="paper-file" type="file" accept=".pdf,application/pdf"></label><span id="paper-file-name">PDF 最大 10 MB</span></div>
+        <div class="fields">
+          <label>论文正文或摘录<textarea id="paper-text" rows="4" maxlength="90000" placeholder="没有 PDF 时粘贴原文。"></textarea></label>
+          <label>希望复现的图表或结论<input id="paper-focus" maxlength="400" placeholder="例如图 4 的正入射吸声曲线"></label>
+        </div>
+        <div class="sim-actions"><button id="paper-analyze" class="primary" type="button" disabled>提取复现工况</button></div>
+        <p id="paper-analysis" role="status"></p>
+      </section>
+      <section class="paper-stage">
+        <h3>核对工况并运行 COMSOL</h3>
+        <form id="paper-form">
+          <div class="fields two">
+            <label>论文标题<input name="title" maxlength="300" required></label>
+            <label>DOI、链接或文献引文<input name="source" maxlength="500" required></label>
+            <label>对照曲线出处<input name="figure" maxlength="240" placeholder="图表编号、工况与曲线系列" required></label>
+            <label>COMSOL 模板<select name="template" required><option value="">选择匹配模板</option><option value="mpp">刚性背衬微穿孔板</option><option value="helmholtz">二维矩形风道侧支亥姆霍兹</option><option value="unmatched">需要新增模板</option></select></label>
+          </div>
+          <div class="fields"><label>原理、边界条件和参数出处<textarea name="evidence" rows="4" maxlength="10000" required></textarea></label></div>
+          <p id="paper-template-note" class="note"></p>
+          <div id="paper-geometry" class="fields three"></div>
+          <div class="fields three">
+            <label>起始频率 Hz<input name="start" type="number" min="50" step="any" required></label>
+            <label>终止频率 Hz<input name="stop" type="number" step="any" required></label>
+            <label>扫频点数<input name="count" type="number" min="5" max="321" required></label>
+          </div>
+          <div class="fields two">
+            <label>曲线均方根误差上限<input name="rmse" type="number" step="any" required></label>
+            <label>峰值频率偏差上限 Hz<input name="peakHz" type="number" step="any" required></label>
+          </div>
+          <div class="file-row"><label class="secondary upload">导入论文曲线 CSV<input id="paper-reference-file" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain"></label></div>
+          <div class="fields"><label>论文原始数据或图中读数<textarea name="reference" rows="4" maxlength="60000" placeholder="每行两列，频率 Hz 和对应的 α 或 dB" required></textarea></label></div>
+          <label class="paper-confirm"><input name="confirmed" type="checkbox" required>我已核对尺寸、曲线来源、指标及模型边界条件</label>
+          <div class="sim-actions"><button id="paper-run" class="primary" type="submit" disabled>运行论文工况</button><button id="paper-export" class="secondary" type="button">导出复现草稿</button></div>
+        </form>
+        <p id="paper-job-status" role="status"></p>
+        <div id="paper-result" hidden>
+          <div class="plot"><canvas id="paper-chart" role="img" aria-label="论文与 COMSOL 曲线"></canvas></div>
+          <div class="axis-note">紫色为论文曲线，青色为 COMSOL。</div>
+          <div id="paper-downloads" class="sim-actions"></div>
+          <div class="sim-actions"><button id="paper-save" class="primary" type="button" disabled>加入推荐库</button></div>
+          <p id="paper-save-status" role="status"></p>
+        </div>
+      </section>
+      <section class="paper-stage">
+        <h3>推荐库</h3>
+        <p class="note">后续选型按指标、尺寸、加工限制和已验证频段挑选库中的原几何方案。</p>
+        <div id="paper-library" class="candidate-grid"></div>
+      </section>
+    </div>
   </dialog>
 </body>
 </html>

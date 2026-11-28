@@ -6,6 +6,8 @@ import {evaluate, spectralProfile} from '../dist/engineering.mjs';
 import {SAMPLE, THIN_SAMPLE} from './fixtures/inputs.mjs';
 import {thinEvidence} from './fixtures/thin-evidence.mjs';
 import {recommendStructures} from '../dist/structure-screen.mjs';
+import {comparePaperCurve, eligiblePaperDesigns} from '../dist/paper-model.mjs';
+import {preparePaper} from '../server/papers.mjs';
 
 test('parses range, mixed units and complete enclosure in the declared order', () => {
   const result = parseRequest('频段 0.6–1.2 kHz，包络 25×32×1.5 cm，最小孔径 0.5 mm');
@@ -97,4 +99,30 @@ test('ranks comparable absorbers with an optional spectrum-weighted metric', () 
   assert(weighted.rankings[0].average > base.rankings[0].average);
   assert.match(runThinTurn({message: '推荐超构', inputs: input, profile}).text, /频谱加权/);
   assert.equal(runThinTurn({message: '提交仿真', inputs: input, activeCandidate: 'coiled'}).showSolver, undefined);
+});
+
+test('requires sourced paper geometry and measures curve error at the reference frequencies', () => {
+  const geometry = {length: 250, width: 320, height: 15, hole: .5, plate: 1, ratio: .006, depth: 12};
+  const paper = {template: 'mpp', title: 'Regression fixture', source: 'Qualification data', figure: 'Table 1', evidence: 'Rigid backing.',
+    geometry, sweep: {start: 600, stop: 1200, count: 41}, reference: thinEvidence.mpp, tolerances: {rmse: .02, peakHz: 20}};
+  assert.throws(() => preparePaper(paper), /核对/);
+  const checked = preparePaper({...paper, confirmed: true});
+  assert.equal(checked.sweep.step, 15);
+  assert.throws(() => preparePaper({...paper, confirmed: true, geometry: {...geometry, height: 11}}), /适用/);
+  assert.equal(comparePaperCurve(checked.reference, thinEvidence.mpp, checked.tolerances).passed, true);
+  const mismatched = thinEvidence.mpp.map(([f, alpha]) => [f, alpha * .7]);
+  assert.equal(comparePaperCurve(checked.reference, mismatched, checked.tolerances).passed, false);
+});
+
+test('only recommends the verified paper geometry in a compatible envelope and frequency band', () => {
+  const entry = {id: 'example', template: 'mpp', geometry: {length: 250, width: 320, height: 13, hole: .5},
+    comparison: {passed: true}, series: thinEvidence.mpp, validatedBand: {low: 630, high: 1170}};
+  const inputs = {low: 650, high: 1150, length: 320, width: 250, height: 15, min: .5, reserve: 2};
+  const options = eligiblePaperDesigns([entry], inputs, 'thin');
+  assert.equal(options[0].id, 'paper-example');
+  assert.equal(options[0].series.length, 41);
+  for (const patch of [{low: 600}, {height: 14}, {width: 249}, {min: .6}]) {
+    assert.equal(eligiblePaperDesigns([entry], {...inputs, ...patch}, 'thin').length, 0);
+  }
+  assert.equal(eligiblePaperDesigns([{...entry, comparison: {passed: false}}], inputs, 'thin').length, 0);
 });

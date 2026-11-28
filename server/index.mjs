@@ -7,10 +7,13 @@ import {fileURLToPath} from 'node:url';
 import {cleanInputs, cleanThin, runThinTurn, runTurn} from '../dist/agent.mjs';
 import {createCodex} from './codex.mjs';
 import {createSolver} from './solver.mjs';
+import {createPaperLibrary, paperId, paperText, preparePaper} from './papers.mjs';
 
 const webRoot = fileURLToPath(new URL('../dist/', import.meta.url));
 const provider = createCodex(process.env.HOOD_CODEX_COMMAND);
 const solver = createSolver(process.env.HOOD_COMSOL_BIN);
+const paperPython = process.env.HOOD_PAPER_PYTHON;
+const paperLibrary = createPaperLibrary(process.env.HOOD_PAPER_LIBRARY || fileURLToPath(new URL('../models/papers/', import.meta.url)), solver);
 const host = process.env.HOOD_HOST || '127.0.0.1';
 const port = Number(process.env.HOOD_PORT || 8768);
 const publicHost = process.env.HOOD_PUBLIC_HOST?.toLowerCase();
@@ -31,12 +34,12 @@ function json(response, status, data) {
   response.end(JSON.stringify(data));
 }
 
-async function body(request) {
+async function body(request, maxBytes = 24_000) {
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
     size += chunk.length;
-    if (size > 24_000) throw Object.assign(new Error('请求超过大小限制。'), {status: 413});
+    if (size > maxBytes) throw Object.assign(new Error('请求超过大小限制。'), {status: 413});
     chunks.push(chunk);
   }
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
@@ -72,7 +75,46 @@ createServer(async (request, response) => {
       }
     }
     if (method === 'GET' && path === '/api/status') {
-      return json(response, 200, {codex: !!provider, solver: solver.enabled, publicUrl: publicUrl?.href});
+      return json(response, 200, {codex: !!provider, solver: solver.enabled, papers: true, paperPdf: !!paperPython, publicUrl: publicUrl?.href});
+    }
+    if (method === 'POST' && path === '/api/papers/analyze') {
+      if (!provider) return json(response, 503, {error: '当前节点未配置 Codex。可以手工核对并填写论文工况。'});
+      const data = await body(request, 13_410_000);
+      const sourceText = await paperText(data, paperPython);
+      try {
+        const result = await provider({text: sourceText, focus: typeof data.focus === 'string' ? data.focus.slice(0, 400) : ''}, 'paper');
+        return json(response, 200, result);
+      } catch (error) {
+        console.error(error.message);
+        return json(response, 502, {error: '论文解析未完成。可重试，或按原文手工填写工况。'});
+      }
+    }
+    if (method === 'POST' && path === '/api/papers/jobs') {
+      const result = solver.submitPaper(preparePaper(await body(request, 96_000)));
+      return json(response, result.status || 202, result);
+    }
+    if (method === 'GET' && path === '/api/papers') {
+      return json(response, 200, {entries: (await paperLibrary.list()).map(({reference, ...entry}) => entry)});
+    }
+    if (method === 'POST' && path === '/api/papers') {
+      const data = await body(request);
+      if (typeof data?.id !== 'string' || !paperId.test(data.id)) return json(response, 400, {error: '无效的复现任务编号。'});
+      return json(response, 200, await paperLibrary.save(data.id));
+    }
+    const paperMatch = path.match(/^\/api\/papers\/([a-f0-9-]+)\/(model\.(mph|csv)|case\.json)$/);
+    if (method === 'GET' && paperMatch && paperId.test(paperMatch[1])) {
+      const [_, id, name, extension] = paperMatch;
+      const entry = await paperLibrary.read(id).catch(error => {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      });
+      if (!entry) return json(response, 404, {error: '复现记录不存在。'});
+      response.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+      if (!extension) return json(response, 200, entry);
+      response.writeHead(200, {'Content-Type': 'application/octet-stream'});
+      const artifact = paperLibrary.artifact(id, extension);
+      artifact.on('error', () => response.destroy());
+      return artifact.pipe(response);
     }
     if (method === 'POST' && path === '/api/agent') {
       const data = await body(request);

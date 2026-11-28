@@ -7,6 +7,7 @@ import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {evaluate} from '../dist/engineering.mjs';
 import {evaluateThin, panelResponse, porousResponse} from '../dist/absorbers.mjs';
+import {comparePaperCurve} from '../dist/paper-model.mjs';
 
 export function readSweep(csv, start, step, count) {
   const rows = csv.split(/\r?\n/).map(line => line.trim()).filter(line => line && !line.startsWith('%'));
@@ -67,6 +68,11 @@ export function createSolver(bin) {
         const peak = resonator.reduce((best, point) => point[1] > best[1] ? point : best);
         job.result = {reference, resonator, peak, sweep};
       }
+      if (job.paper) {
+        const series = (job.result.series ?? job.result.resonator).map(([, value], index) =>
+          [index === sweep.count - 1 ? sweep.stop : sweep.start + sweep.step * index, value]);
+        job.result = {...job.result, series, comparison: comparePaperCurve(job.paper.reference, series, job.paper.tolerances)};
+      }
       job.state = 'succeeded';
     } catch (error) {
       console.error(`COMSOL ${job.id}: ${error.message}`);
@@ -76,7 +82,7 @@ export function createSolver(bin) {
     }
   }
 
-  function startJob(inputs, params, sweep, candidate) {
+  function startJob(inputs, params, sweep, candidate, paper) {
     if (jobs.size >= 20) {
       const oldest = jobs.values().next().value;
       jobs.delete(oldest.id);
@@ -85,7 +91,7 @@ export function createSolver(bin) {
         void rm(oldest.dir, {recursive: true, force: true}).catch(error => console.error(error.message));
       }
     }
-    const job = {id: randomUUID(), state: 'queued', inputs, candidate, result: null};
+    const job = {id: randomUUID(), state: 'queued', inputs, candidate, result: null, paper};
     jobs.set(job.id, job);
     void execute(job, params, sweep);
     return {id: job.id, state: job.state};
@@ -132,8 +138,18 @@ export function createSolver(bin) {
   function status(id) {
     const job = jobs.get(id);
     if (!job) return null;
-    const {state, result, inputs, candidate} = job;
-    return {id, state, result, inputs, candidate};
+    const {state, result, inputs, candidate, paper} = job;
+    return {id, state, result, inputs, candidate, paper};
+  }
+
+  function submitPaper(paper) {
+    if (!enabled) return {error: '当前部署未启用 COMSOL 工作节点。', status: 503};
+    if (active) return {error: '有一个求解任务正在运行，请稍后再试。', status: 409};
+    const {template, geometry: g, sweep} = paper;
+    const {start, stop, step} = sweep;
+    const params = template === 'mpp' ? {mode: 1, hole: g.hole, plate: g.plate, ratio: g.ratio, depth: g.depth}
+      : {length: g.length, duct: g.duct, neck: g.neck, neckLength: g.neckLength, cavityLength: g.cavityLength, cavityHeight: g.cavityHeight};
+    return startJob(null, {...params, start, stop, step}, sweep, template, paper);
   }
 
   function artifact(id, filename) {
@@ -143,5 +159,5 @@ export function createSolver(bin) {
     return createReadStream(join(job.dir, filename));
   }
 
-  return {enabled, submit, submitThin, status, artifact};
+  return {enabled, submit, submitThin, submitPaper, status, artifact};
 }

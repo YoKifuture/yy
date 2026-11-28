@@ -360,6 +360,21 @@ input::placeholder { color: #7c96b3; }
 .dialog { color: var(--text); border-radius: 16px; width: min(455px, calc(100% - 28px)); padding: 20px; background-color: #182940; }
 .dialog::backdrop { background: #050b15a9; backdrop-filter: blur(4px); }
 .dialog p { color: var(--muted); font-size: .85rem; }
+.dialog.paper-dialog { width: min(920px, calc(100% - 28px)); max-height: 90dvh; overflow-y: auto; }
+.paper-workflow { display: grid; gap: 16px; }
+.paper-stage { min-width: 0; border-top: 1px solid #93b8d44c; padding-top: 13px; }
+.paper-stage h3 { margin: 0 0 7px; font-size: .98rem; }
+.paper-stage .fields { margin-top: 9px; }
+.paper-stage .sim-actions { margin-top: 10px; }
+.paper-stage p[role=status] { white-space: pre-wrap; overflow-wrap: anywhere; }
+.paper-stage textarea { display: block; width: 100%; min-height: 68px; margin-top: 5px; padding: 8px; border: 1px solid #93b8d46b; border-radius: 8px; background: transparent; color: inherit; font: inherit; resize: vertical; }
+.paper-confirm { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; font-size: .84rem; color: var(--muted); }
+.paper-stage input[type=checkbox] { width: auto; flex: none; }
+.paper-stage .candidate h3, #thin-paper-options .candidate h3, #duct-paper-options .candidate h3 { overflow-wrap: anywhere; }
+.paper-stage .plot { min-height: 220px; }
+@media (max-width: 560px) {
+  .paper-stage .fields.three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .connection-facts { display: grid; gap: 8px; grid-template-columns: repeat(2, 1fr); margin: 13px 0; }
 .connection-facts div { border: 1px solid var(--line); border-radius: 7px; padding: 8px; }
 .link-field { font-size: .78rem; color: var(--muted); }

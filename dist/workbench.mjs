@@ -3,6 +3,7 @@ import {evaluateThin, THIN_FIELDS} from './absorbers.mjs';
 import {detectPeaks, parseSpectrum, spectralProfile} from './engineering.mjs';
 import {recommendStructures} from './structure-screen.mjs';
 import {averageAbsorption} from './slit-model.mjs';
+import {connectPapers} from './papers.mjs';
 
 const byId = id => document.getElementById(id);
 const names = {mpp: '浅背腔微穿孔板', porous: '刚性背衬多孔纤维层', 'quarter-wave': '四分之一波长直通道', coiled: '卷曲迷宫（单 U 形）'};
@@ -41,7 +42,7 @@ async function api(route, data, timeout = 5000) {
   return result;
 }
 
-export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, clearDuct, ductSelected, updateDuct, renderStructureScreen}) {
+export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, ductSpectrum, clearDuct, ductSelected, updateDuct, renderStructureScreen}) {
   const thinForm = byId('thin-form');
   const ductForm = byId('parameters');
   const chatInput = byId('chat-input');
@@ -65,6 +66,8 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
   }));
   const inputsFor = mode => mode === 'thin' ? thinInputs() : getInputs();
   const profileFor = ({low, high}) => spectralProfile(thinSpectrum, low, high);
+  const ductProfileFor = ({low, high}) => spectralProfile(ductSpectrum(), low, high);
+  const papers = connectPapers({api, draw, add, colors, saveJson, onLibrary() { renderThin(); renderDuct(); }});
   const palette = {mpp: colors.accent, porous: colors.comparison, 'quarter-wave': '--chart-straight', coiled: '--chart-coiled'};
 
   function thinOptions(inputs, result) {
@@ -109,6 +112,7 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
     const result = evaluateThin(inputs);
     const {screening, items, profile} = thinOptions(inputs, result);
     renderStructureScreen(byId('thin-structure-screen'), screening);
+    papers.renderMatches('thin', inputs, profile);
     const area = byId('thin-candidates');
     const error = byId('thin-error');
     area.replaceChildren();
@@ -161,6 +165,8 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
   }
 
   function renderDuct() {
+    const inputs = getInputs();
+    papers.renderMatches('duct', inputs, ductProfileFor(inputs));
     const active = live.duct && ductSelected()?.structure === 'helmholtz' && same(getInputs(), live.duct.inputs) ? live.duct : null;
     byId('submit-duct').disabled = !capabilities.solver || pending || ductSelected()?.structure !== 'helmholtz';
     links('duct', active);
@@ -233,6 +239,16 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
       return;
     }
     populate(form, result.inputs);
+    if (parseRequest(text, mode === 'thin').compare) {
+      const current = inputsFor(mode);
+      const profile = mode === 'thin' ? profileFor(current) : ductProfileFor(current);
+      const relevant = papers.matches(mode, current, profile);
+      if (relevant.length) {
+        const unit = mode === 'thin' ? '吸声系数' : '传声损失 dB';
+        const names = relevant.map(entry => `${entry.title}（${unit} ${entry.average.toFixed(3)}）`);
+        message('符合当前工况的已验证论文方案\n' + names.join('\n'), false);
+      }
+    }
     if (mode === 'thin') { if (result.selected) thinChoice = result.selected; renderThin(); }
     else { updateDuct(result.selected); renderDuct(); }
     const suggestions = Object.entries(result.suggestions || {}).filter(([key]) => form.elements.namedItem(key));
@@ -383,7 +399,7 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
     const {screening, items, profile} = thinOptions(inputs, result);
     if (!items.length) return;
     const file = {inputs, metric: 'normal incidence absorption', method: 'analytical', weighting: profile ? 'spectrum' : 'uniform',
-      selected: thinChoice, candidates: items, structureScreening: screening};
+      selected: thinChoice, candidates: items, structureScreening: screening, literature: papers.matches('thin', inputs, profile)};
     saveJson('absorption-report.json', file);
   });
 
@@ -422,6 +438,7 @@ export function connectWorkbench({draw, add, addFacts, colors, getInputs, peak, 
   const ductObserver = new ResizeObserver(renderDuct);
   ductObserver.observe(byId('simulation-chart'));
   api('status', undefined, 2500).then(info => { capabilities = info; }).catch(() => {}).finally(() => {
+    papers.update(capabilities);
     byId('service-status').textContent = capabilities.codex && capabilities.solver ? '服务已连接' : capabilities.codex || capabilities.solver ? '部分服务在线' : '工程选型';
     byId('service-led').classList.toggle('connected', !!(capabilities.codex && capabilities.solver));
     byId('provider-status').textContent = capabilities.codex ? 'Codex 已连接' : '规则选型 · 模型服务未连接';
